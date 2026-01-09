@@ -16,7 +16,7 @@ import Flow2RiskDetailsPanel, { type RiskLevel } from '../components/flow2/Flow2
 import type { GenericTopicSummary } from '@/app/lib/topicSummaries/types';
 import { KYC_FLOW2_CONFIG, IT_BULLETIN_CONFIG, CASE2_CS_INTEGRATION_CONFIG } from '@/app/lib/topicSummaries/configs';
 import { resolveTopicSet } from '@/app/lib/topicSummaries/topicSetResolver';
-import { deriveFlow2RouteId } from '@/app/lib/topicSummaries/deriveFlow2RouteId';
+import { deriveFlow2RouteId, type DeriveContext } from '@/app/lib/topicSummaries/deriveFlow2RouteId';
 import { KYC_TOPIC_IDS } from '@/app/lib/flow2/kycTopicsSchema';
 import { mapIssuesToRiskInputs } from '@/app/lib/flow2/issueAdapter';
 import { buildFlow2DemoEvidencePseudoDocs, hasFlow2DemoEvidence } from '@/app/lib/flow2/demoEvidencePseudoDocs';
@@ -2011,20 +2011,20 @@ function DocumentPageContent() {
         // Call topic summaries with (potentially augmented) document set
         // CRITICAL: Await this call - Flow Monitor should not show until this completes
         console.log('[Flow2/HITL] Extracting topics before showing Flow Monitor...');
-        // Phase 3.5: Derive routeId from context (pinned to KYC review)
-        const kycCtx = {
+        // Phase 3.6: Derive routeId from live context
+        const flow2DeriveCtx: DeriveContext = {
           isFlow2,
-          case3Active: false,
-          case4Active: false,
-          case2Active: false,
+          case3Active,
+          case4Active,
+          case2Active: isCase2Active,
         };
-        const kycRouteId = deriveFlow2RouteId(kycCtx);
-        const kycTopicIds = resolveTopicSet(kycRouteId).topic_ids;
+        const routeId = deriveFlow2RouteId(flow2DeriveCtx);
+        const topicIds = resolveTopicSet(routeId).topic_ids;
         const topicSuccess = await callGenericTopicSummariesEndpoint(
           '/api/flow2/topic-summaries',
           runIdForTopics,
           topicInputDocs,
-          kycTopicIds,
+          topicIds,
           data.issues || [],
           setFlow2TopicSummaries,
           setIsLoadingTopicSummaries,
@@ -2098,22 +2098,22 @@ function DocumentPageContent() {
       console.log('[Flow2] Orchestration complete, now extracting topics for Document Analysis...');
       const runIdForTopics = data.run_id || data.graphReviewTrace?.summary?.runId || `run-${Date.now()}`;
 
-      // Phase 3.5: Derive routeId from context (pinned to KYC review)
-      const kycCompletionCtx = {
+      // Phase 3.6: Derive routeId from live context (completion path)
+      const completionDeriveCtx: DeriveContext = {
         isFlow2,
-        case3Active: false,
-        case4Active: false,
-        case2Active: false,
+        case3Active,
+        case4Active,
+        case2Active: isCase2Active,
       };
-      const kycCompletionRouteId = deriveFlow2RouteId(kycCompletionCtx);
-      const kycTopicIdsForCompletion = resolveTopicSet(kycCompletionRouteId).topic_ids;
+      const completionRouteId = deriveFlow2RouteId(completionDeriveCtx);
+      const completionTopicIds = resolveTopicSet(completionRouteId).topic_ids;
 
       // AWAIT topic summaries - Document Analysis is not complete without topics!
       await callGenericTopicSummariesEndpoint(
         '/api/flow2/topic-summaries',
         runIdForTopics,
         flow2Documents,
-        kycTopicIdsForCompletion,
+        completionTopicIds,
         data.issues || [],
         setFlow2TopicSummaries,
         setIsLoadingTopicSummaries,
@@ -4559,14 +4559,15 @@ function DocumentPageContent() {
       const itRunId = `it-review-${Date.now()}`;
       setItTopicSummariesRunId(itRunId);
 
-      // Phase 3.5: Derive routeId from context (pinned to IT review)
-      const itCtx = {
-        isFlow2: false,
-        case3Active: false,
-        case4Active: true,
-        case2Active: false,
+      // Phase 3.6: Derive routeId from live context
+      // NOTE: case4Active may still be false here due to async state update
+      const itDeriveCtx: DeriveContext = {
+        isFlow2,
+        case3Active,
+        case4Active,
+        case2Active: isCase2Active,
       };
-      const itRouteId = deriveFlow2RouteId(itCtx);
+      const itRouteId = deriveFlow2RouteId(itDeriveCtx);
       const itTopicIds = resolveTopicSet(itRouteId).topic_ids;
 
       callGenericTopicSummariesEndpoint(

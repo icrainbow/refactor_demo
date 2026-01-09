@@ -200,4 +200,54 @@ describe('deriveFlow2RouteId', () => {
       expect(result2).toBe(result3);
     });
   });
+
+  describe('Phase 3.6: Live State Mixing Scenarios', () => {
+    it('should handle case2Active overriding isFlow2 in live KYC handler', () => {
+      // Realistic: User in Flow2 mode triggers Case2 CS integration
+      const ctx: DeriveContext = {
+        isFlow2: true,
+        case3Active: false,
+        case4Active: false,
+        case2Active: true, // Case2 accepted and active
+      };
+
+      expect(deriveFlow2RouteId(ctx)).toBe('case2_review');
+    });
+
+    it('should handle case4Active overriding case2Active in live state', () => {
+      // Realistic: User has Case2 active but then triggers IT review
+      const ctx: DeriveContext = {
+        isFlow2: true,
+        case3Active: false,
+        case4Active: true, // IT review triggered
+        case2Active: true, // Case2 still technically active
+      };
+
+      expect(deriveFlow2RouteId(ctx)).toBe('it_review');
+    });
+
+    it('should handle case3Active guardrail overriding IT review', () => {
+      // Realistic: Guardrail fires during active IT review session
+      const ctx: DeriveContext = {
+        isFlow2: true,
+        case3Active: true, // Guardrail triggered
+        case4Active: true, // IT review was active
+        case2Active: false,
+      };
+
+      expect(deriveFlow2RouteId(ctx)).toBe('guardrail_check');
+    });
+
+    it('should handle IT review without Flow2 mode (case4Active alone)', () => {
+      // Realistic: User triggers IT review from Flow1 or standalone
+      const ctx: DeriveContext = {
+        isFlow2: false,
+        case3Active: false,
+        case4Active: true, // IT review in non-Flow2 context
+        case2Active: false,
+      };
+
+      expect(deriveFlow2RouteId(ctx)).toBe('it_review');
+    });
+  });
 });
