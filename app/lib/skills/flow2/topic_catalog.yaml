@@ -1,0 +1,151 @@
+# Flow2 Topic Catalog
+# Version: 1.0
+# Owner: Risk/Compliance
+# Approver: Chief Risk Officer
+# Source of Truth: Resolves 8 vs 7 topic conflict (kycTopicsSchema.ts wins)
+
+version: "1.0"
+schema: "topic_catalog_v1"
+
+topics:
+  - topic_id: customer_identity_profile
+    title: "Customer Identity & Verification"
+    keywords:
+      - "name"
+      - "identity"
+      - "passport"
+      - "id number"
+      - "date of birth"
+      - "nationality"
+      - "citizen"
+      - "verification"
+    is_critical: true
+    coverage_threshold: 200
+
+  - topic_id: source_of_wealth
+    title: "Source of Wealth & Income"
+    keywords:
+      - "wealth"
+      - "income"
+      - "salary"
+      - "inheritance"
+      - "business"
+      - "employment"
+      - "property"
+      - "real estate"
+      - "aum"
+    is_critical: true
+    coverage_threshold: 200
+
+  - topic_id: relationship_purpose
+    title: "Business Relationship Purpose"
+    keywords:
+      - "relationship"
+      - "purpose"
+      - "account"
+      - "services"
+      - "products"
+      - "investment"
+      - "portfolio"
+    is_critical: false
+    coverage_threshold: 200
+
+  - topic_id: ownership_ubo_control
+    title: "Beneficial Ownership Structure"
+    keywords:
+      - "beneficial owner"
+      - "ownership"
+      - "shareholder"
+      - "director"
+      - "ubo"
+      - "control"
+      - "structure"
+    is_critical: true
+    coverage_threshold: 200
+
+  - topic_id: geography_jurisdiction_risk
+    title: "Geography & Jurisdiction Risk"
+    keywords:
+      - "jurisdiction"
+      - "offshore"
+      - "geography"
+      - "country"
+      - "sanctions"
+      - "restricted"
+      - "cayman"
+      - "bvi"
+      - "switzerland"
+    is_critical: false
+    coverage_threshold: 200
+
+  - topic_id: sanctions_pep_adverse_media
+    title: "Sanctions & PEP Screening"
+    keywords:
+      - "sanctions"
+      - "pep"
+      - "politically exposed"
+      - "watchlist"
+      - "screening"
+      - "adverse media"
+    is_critical: true
+    coverage_threshold: 200
+
+  - topic_id: transaction_patterns_expected_behavior
+    title: "Expected Transaction Patterns"
+    keywords:
+      - "transaction"
+      - "volume"
+      - "frequency"
+      - "pattern"
+      - "activity"
+      - "behavior"
+      - "expected"
+    is_critical: false
+    coverage_threshold: 200
+
+  - topic_id: source_of_funds
+    title: "Source of Funds"
+    keywords:
+      - "funds"
+      - "source"
+      - "payment"
+      - "transfer"
+      - "deposit"
+    is_critical: false
+    coverage_threshold: 200
+
+critical_flags:
+  count: 4
+  ids:
+    - customer_identity_profile
+    - source_of_wealth
+    - ownership_ubo_control
+    - sanctions_pep_adverse_media
+
+# Phase 3.4: Route-specific topic sets
+# Maps route_id to ordered list of topic_ids to display
+topic_sets:
+  kyc_review:
+    - customer_identity_profile
+    - relationship_purpose
+    - source_of_wealth
+    - source_of_funds
+    - ownership_ubo_control
+    - geography_jurisdiction_risk
+    - sanctions_pep_adverse_media
+    - transaction_patterns_expected_behavior
+
+  case2_review:
+    - client_profile_legacy_context
+    - jurisdiction_crossborder_constraints
+    - risk_appetite_alignment
+    - edd_triggers_red_flags
+    - required_evidence_data_gaps
+    - recommended_approval_path_governance
+
+  it_review:
+    - system_components_identifiers
+    - regions_environments_scope
+    - change_details_what_changed
+    - timeline_execution_windows
+    - actions_required_followups

@@ -1,0 +1,143 @@
+name: Phase 2 - Governance Gates
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+jobs:
+  phase2-gates:
+    name: Run All Governance Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Gate 1 - Build & Typecheck
+        run: npm run gate:build
+
+      - name: Gate 2 - Self-Check (Fail mode)
+        run: npm run gate:selfcheck
+        env:
+          FLOW2_SELF_CHECK_MODE: fail
+          FLOW2_SKILL_REGISTRY: 'true'
+
+      - name: Gate 3 - Golden Regression
+        run: npm run gate:golden
+        env:
+          FLOW2_SKILL_REGISTRY: 'true'
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "✅ All Phase 2 gates passed"
+          echo "   - Build & Typecheck: PASSED"
+          echo "   - Self-Check: PASSED"
+          echo "   - Golden Regression: PASSED"
+
+      - name: Failure Summary
+        if: failure()
+        run: |
+          echo "❌ Phase 2 gates failed"
+          echo "Please check the logs above for details"
+          exit 1
+
+  phase2-verification:
+    name: Verify Zero Runtime Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify no changes to protected files
+        run: |
+          echo "Checking for changes to protected runtime files..."
+
+          # List of protected files (Phase 2 must not modify these)
+          PROTECTED_PATHS=(
+            "app/api/"
+            "app/lib/graphKyc/"
+            "app/lib/email/"
+            "app/lib/topicSummaries/"
+            "app/lib/skills/skillDispatcher.ts"
+            "app/lib/skills/skillCatalog.ts"
+          )
+
+          # Check if any protected files were modified
+          CHANGED=false
+          for path in "${PROTECTED_PATHS[@]}"; do
+            if git diff --name-only origin/main | grep -q "^$path"; then
+              echo "❌ ERROR: Protected path modified: $path"
+              CHANGED=true
+            fi
+          done
+
+          if [ "$CHANGED" = true ]; then
+            echo ""
+            echo "❌ Phase 2 constraint violation: Protected runtime files were modified"
+            echo "   Phase 2 must be ADDITIVE ONLY - no changes to existing business logic"
+            exit 1
+          fi
+
+          echo "✅ No protected files modified - Phase 2 constraints satisfied"
+
+      - name: Verify feature flags remain false
+        run: |
+          echo "Checking feature flag states..."
+
+          # Ensure FLOW2_SKILL_REGISTRY is not enabled by default
+          if grep -r "FLOW2_SKILL_REGISTRY.*=.*true" app/ --include="*.ts" --include="*.tsx" --exclude-dir=node_modules; then
+            echo "❌ ERROR: FLOW2_SKILL_REGISTRY enabled in runtime code"
+            echo "   Phase 2 feature flags must remain FALSE"
+            exit 1
+          fi
+
+          echo "✅ Feature flags remain disabled - Phase 2 constraints satisfied"
+
+  all-gates-passed:
+    name: All Gates Status
+    runs-on: ubuntu-latest
+    needs: [phase2-gates, phase2-verification]
+    if: always()
+
+    steps:
+      - name: Check overall status
+        run: |
+          if [ "${{ needs.phase2-gates.result }}" = "success" ] && [ "${{ needs.phase2-verification.result }}" = "success" ]; then
+            echo "✅ ALL PHASE 2 GATES PASSED"
+            echo ""
+            echo "Summary:"
+            echo "  ✓ Build & Typecheck"
+            echo "  ✓ Self-Check Validation"
+            echo "  ✓ Golden Regression"
+            echo "  ✓ Zero Runtime Changes Verified"
+            echo ""
+            echo "Phase 2 complete - Phase 3 safe to start"
+            exit 0
+          else
+            echo "❌ PHASE 2 GATES FAILED"
+            echo ""
+            echo "Gate Status:"
+            echo "  - phase2-gates: ${{ needs.phase2-gates.result }}"
+            echo "  - phase2-verification: ${{ needs.phase2-verification.result }}"
+            exit 1
+          fi

@@ -1,0 +1,28 @@
+# Golden Test Case: Chat General
+# Route: chat_general
+# Description: General KYC knowledge base chat
+
+test_name: "Chat General - Knowledge Base Query"
+
+input:
+  trigger: "Chat input: 'What are the KYC requirements?'"
+  context:
+    mode: "chat"
+    chat_input: "What are the KYC requirements for individual customers?"
+
+expected:
+  route_id: "chat_general"
+  required_skills: []
+  topic_ids: []
+  flags:
+    - "chat_mode"
+    - "no_review"
+  hitl: false
+
+# Note: No template_id because this is direct LLM chat
+
+# Ignored (non-deterministic / LLM-generated):
+# - Chat response text
+# - LLM reasoning
+# - run_id, message_id
+# - Timestamps

@@ -1,0 +1,128 @@
+# Flow2 Tools Schema
+# Version: 1.0
+# Owner: Engineering
+# Approver: Tech Lead
+
+version: "1.0"
+schema: "tools_schema_v1"
+
+agents:
+  - agent_id: "topic_assembler"
+    name: "KYC Topic Assembler"
+    description: "Organizes uploaded documents into KYC topic sections"
+    capabilities:
+      - "document_parsing"
+      - "topic_extraction"
+      - "keyword_matching"
+    priority: 1
+    owner: "risk_team"
+
+  - agent_id: "risk_triage_agent"
+    name: "Risk Triage Agent"
+    description: "Scores KYC documents for risk level and routes to appropriate review path"
+    capabilities:
+      - "risk_scoring"
+      - "routing_decision"
+      - "threshold_evaluation"
+    priority: 1
+    owner: "risk_team"
+
+  - agent_id: "policy_checker"
+    name: "Policy Compliance Checker"
+    description: "Validates documents against regulatory policies"
+    capabilities:
+      - "policy_validation"
+      - "compliance_check"
+      - "flag_detection"
+    priority: 2
+    owner: "compliance_team"
+
+  - agent_id: "pep_screener"
+    name: "PEP Screening Agent"
+    description: "Screens for politically exposed persons"
+    capabilities:
+      - "pep_detection"
+      - "watchlist_matching"
+      - "adverse_media_check"
+    priority: 1
+    owner: "compliance_team"
+
+  - agent_id: "sanctions_screener"
+    name: "Sanctions Screening Agent"
+    description: "Screens against sanctions lists (OFAC, UN)"
+    capabilities:
+      - "sanctions_check"
+      - "list_matching"
+      - "jurisdiction_risk"
+    priority: 1
+    owner: "compliance_team"
+
+  - agent_id: "beneficial_ownership_analyzer"
+    name: "Beneficial Ownership Analyzer"
+    description: "Identifies and validates beneficial owners"
+    capabilities:
+      - "ubo_extraction"
+      - "ownership_structure_analysis"
+      - "threshold_validation"
+    priority: 2
+    owner: "risk_team"
+
+  - agent_id: "source_of_wealth_verifier"
+    name: "Source of Wealth Verifier"
+    description: "Verifies legitimacy of customer wealth sources"
+    capabilities:
+      - "wealth_source_analysis"
+      - "income_verification"
+      - "consistency_check"
+    priority: 2
+    owner: "risk_team"
+
+  - agent_id: "transaction_monitor"
+    name: "Transaction Pattern Monitor"
+    description: "Analyzes expected transaction patterns"
+    capabilities:
+      - "pattern_analysis"
+      - "volume_assessment"
+      - "frequency_check"
+    priority: 3
+    owner: "operations_team"
+
+  - agent_id: "document_validator"
+    name: "Document Validator"
+    description: "Validates document authenticity and completeness"
+    capabilities:
+      - "document_verification"
+      - "completeness_check"
+      - "format_validation"
+    priority: 2
+    owner: "operations_team"
+
+  - agent_id: "edd_analyzer"
+    name: "Enhanced Due Diligence Analyzer"
+    description: "Performs enhanced due diligence analysis"
+    capabilities:
+      - "deep_risk_analysis"
+      - "enhanced_verification"
+      - "complex_structure_analysis"
+    priority: 1
+    owner: "risk_team"
+
+  - agent_id: "report_generator"
+    name: "Review Report Generator"
+    description: "Generates human-readable review reports"
+    capabilities:
+      - "report_generation"
+      - "markdown_formatting"
+      - "summary_creation"
+    priority: 3
+    owner: "operations_team"
+
+  - agent_id: "email_composer"
+    name: "Approval Email Composer"
+    description: "Composes approval/rejection emails"
+    capabilities:
+      - "email_generation"
+      - "template_rendering"
+      - "multi_language"
+    priority: 3
+    owner: "operations_team"

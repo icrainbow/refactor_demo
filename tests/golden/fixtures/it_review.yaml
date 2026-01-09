@@ -1,0 +1,34 @@
+# Golden Test Case: IT Review
+# Route: it_review
+# Description: IT impact analysis with multi-dimensional review
+
+test_name: "IT Review - Bulletin Analysis"
+
+input:
+  trigger: "Run IT Review button"
+  context:
+    mode: "it_bulletin"
+    documents:
+      - filename: "security_bulletin.pdf"
+        type: "it_bulletin"
+      - filename: "vulnerability_report.pdf"
+        type: "security_report"
+
+expected:
+  route_id: "it_review"
+  required_skills:
+    - "prompts_bundle:topic_summaries"
+    - "templates:email_default"
+  flags:
+    - "it_review_mode"
+  hitl: true
+  template_id: "email_default"
+
+# Note: IT review does not use topic_catalog:topics (uses prompts_bundle instead)
+
+# Ignored (non-deterministic / LLM-generated):
+# - LLM summary text
+# - Email body content
+# - Impact analysis details
+# - run_id, message_id
+# - Timestamps

@@ -1,0 +1,37 @@
+# Golden Test Case: Case 2 Review
+# Route: case2_review
+# Description: Natural language process composition with explicit confirmation
+
+test_name: "Case 2 Review - Chat Triggered"
+
+input:
+  trigger: "Chat keyword detection (CS integration / restricted jurisdiction / high-net-worth)"
+  context:
+    mode: "case2_nl"
+    chat_input: "Please review this customer integration for Singapore jurisdiction"
+    keywords_detected:
+      - "CS integration"
+      - "restricted jurisdiction"
+
+expected:
+  route_id: "case2_review"
+  required_skills:
+    - "topic_catalog:topics"
+    - "prompts_bundle:topic_summaries"
+    - "templates:email_default"
+  topic_ids:
+    - "kyc_customer_id"
+    - "kyc_jurisdiction"
+    - "kyc_sanctions_screening"
+  flags:
+    - "nl_triggered"
+    - "confirmation_required"
+  hitl: true
+  template_id: "email_default"
+
+# Ignored (non-deterministic / LLM-generated):
+# - LLM summary text
+# - Email body content
+# - Natural language interpretation
+# - run_id, message_id
+# - Timestamps

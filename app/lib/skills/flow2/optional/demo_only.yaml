@@ -1,0 +1,66 @@
+# Flow2 Demo Data
+# Version: 1.0
+# Owner: Engineering/QA
+# Approver: QA Lead
+# Deployment: DEV/STAGING ONLY - NOT PRODUCTION
+
+version: "1.0"
+schema: "demo_only_v1"
+environment: "dev"
+
+scenarios:
+  - scenario_id: "FAST"
+    name: "Low Risk - Fast Path"
+    description: "Clean KYC with complete documentation, no red flags"
+    documents:
+      - filename: "client_profile_clean.txt"
+        content: "John Smith, UK citizen, passport A123456, DOB 1980-01-01. Employed as software engineer at TechCorp Ltd for 8 years. Annual salary £95,000. No PEP connections. Resident in London."
+      - filename: "source_of_wealth_clean.txt"
+        content: "Primary income from employment as senior software engineer. Bank statements from Barclays showing regular salary deposits. Total savings £250,000 accumulated over career. No offshore accounts."
+      - filename: "relationship_purpose.txt"
+        content: "Opening investment account for long-term savings. Expected transactions: monthly deposits of £2,000-5,000, occasional withdrawals for major purchases."
+    expected:
+      path: "fast"
+      min_risk_score: 0
+      max_risk_score: 25
+      hitl_required: false
+
+  - scenario_id: "CROSSCHECK"
+    name: "Medium Risk - Cross-Check Path"
+    description: "Missing one non-critical topic, requires cross-check"
+    documents:
+      - filename: "client_identity.txt"
+        content: "Sarah Johnson, US citizen, passport B789012, DOB 1975-05-15. Self-employed business consultant."
+      - filename: "wealth_declaration.txt"
+        content: "Income derived from consulting services to various corporations. Annual revenue approximately $400,000. Business registered in Delaware."
+    expected:
+      path: "crosscheck"
+      min_risk_score: 35
+      max_risk_score: 55
+      hitl_required: false
+
+  - scenario_id: "ESCALATE"
+    name: "High Risk - Escalate Path"
+    description: "High-risk keywords detected, requires escalation"
+    documents:
+      - filename: "client_background.txt"
+        content: "Michael Chen, Singapore citizen, passport C345678. High-net-worth individual with $15M AUM. Previous connections to cryptocurrency trading platforms."
+      - filename: "wealth_sources.txt"
+        content: "Wealth accumulated through early cryptocurrency investments and offshore property holdings in British Virgin Islands. Complex ownership structures involving multiple shell companies."
+    expected:
+      path: "escalate"
+      min_risk_score: 65
+      max_risk_score: 75
+      hitl_required: false
+
+  - scenario_id: "HUMAN_GATE"
+    name: "Critical Risk - Human Gate Required"
+    description: "Multiple critical topics missing, high-risk keywords, requires human review"
+    documents:
+      - filename: "minimal_info.txt"
+        content: "Name: Alexander Volkov. Requesting private banking services. Interested in offshore investment vehicles and cryptocurrency custody solutions. Has PEP connections through family members in Eastern European government."
+    expected:
+      path: "human_gate"
+      min_risk_score: 85
+      max_risk_score: 100
+      hitl_required: true

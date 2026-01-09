@@ -1,0 +1,62 @@
+# Flow2 Routing Configuration
+# Version: 1.0
+# Owner: Engineering
+# Approver: Tech Lead
+
+version: "1.0"
+schema: "routing_v1"
+
+routes:
+  - route_id: "kyc_review"
+    trigger: "Run Process Review button"
+    mode: "langgraph_kyc"
+    handler: "app/api/orchestrate/route.ts:handleLangGraphKyc"
+    entry_point: "app/lib/graphKyc/orchestrator.ts:runGraphKycReview"
+    required_skills:
+      - topic_catalog:topics
+      - topic_catalog:critical_flags
+      - policy_bundle:triage.scoring_rules
+      - policy_bundle:triage.routing_thresholds
+      - policy_bundle:high_risk_keywords
+      - policy_bundle:severity_mappings
+      - prompts_bundle:topic_summaries
+      - templates:email_default
+    description: "Adaptive KYC review with risk triage and human gates"
+
+  - route_id: "it_review"
+    trigger: "Run IT Review button"
+    mode: "it_bulletin"
+    handler: "app/api/it-bulletin/topic-summaries/route.ts:POST"
+    entry_point: "app/lib/topicSummaries/engine.ts:callTopicSummariesEngine"
+    required_skills:
+      - prompts_bundle:topic_summaries
+      - templates:email_default
+    description: "IT impact analysis with multi-dimensional review"
+
+  - route_id: "case2_review"
+    trigger: "Chat keyword detection (CS integration / restricted jurisdiction / high-net-worth)"
+    mode: "case2_nl"
+    handler: "app/document/page.tsx:handleCase2RealProcessReview"
+    entry_point: "app/lib/topicSummaries/engine.ts:callTopicSummariesEngine"
+    required_skills:
+      - topic_catalog:topics
+      - prompts_bundle:topic_summaries
+      - templates:email_default
+    description: "Natural language process composition with explicit confirmation"
+
+  - route_id: "chat_general"
+    trigger: "Chat input (no Case 2 keywords)"
+    mode: "chat"
+    handler: "app/api/chat/general/route.ts:POST"
+    entry_point: "N/A - direct LLM call"
+    required_skills: []
+    description: "General KYC knowledge base chat"
+
+  - route_id: "guardrail_check"
+    trigger: "File upload validation (pre-review)"
+    mode: "pre_check"
+    handler: "app/lib/case3/detectGuardrailIssue.ts:detectGuardrailIssue"
+    entry_point: "app/lib/case3/detectGuardrailIssue.ts:detectGuardrailIssue"
+    required_skills:
+      - policy_bundle:high_risk_keywords
+    description: "Pre-review guardrail: blocks wrong document or BR mismatch"

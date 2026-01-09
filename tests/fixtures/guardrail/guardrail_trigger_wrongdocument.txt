@@ -1,0 +1,28 @@
+UTILITY BILL - ELECTRICITY
+
+Customer Name: John Smith
+Service Address: 123 Main Street, Apt 4B, New York, NY 10001
+Account Number: UTIL-987654321
+Billing Period: December 1, 2023 - December 31, 2023
+
+Usage Summary:
+Current Reading: 45,230 kWh
+Previous Reading: 44,850 kWh
+Total Usage: 380 kWh
+
+Charges:
+Electricity Supply (380 kWh @ $0.15/kWh)    $57.00
+Delivery Charges                             $28.50
+System Benefit Charge                        $4.20
+Tax                                          $6.75
+                                           --------
+Total Amount Due:                           $96.45
+
+Payment Due Date: January 15, 2024
+
+This is a utility bill showing electricity usage and charges.
+This document is not relevant for KYC (Know Your Customer) verification.
+Expected documents would include identity documents or financial statements.
+
+
+

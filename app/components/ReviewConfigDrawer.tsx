@@ -1,0 +1,1507 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import type { AgentParticipant } from '../lib/computeParticipants';
+import type { AgentCategory, AgentVariant } from '../lib/agentVariants';
+import { getAgentsByCategory, getAgentVariant, AGENT_VARIANTS } from '../lib/agentVariants';
+import type { ReviewConfig } from '../lib/reviewConfig';
+import type { ClientContext } from '../lib/reviewProfiles';
+import type { VisibilityMode } from '../types/visibility';
+import { getVisibilityConfig } from '../types/visibility';
+import ContractProfilePanel from './ContractProfilePanel';
+import { recommendAgentBundle } from '../lib/reviewProfileMapping';
+import { validateAgentFeasibility } from '../lib/agentFeasibilityValidator';
+import { getClientProfile, DEFAULT_CLIENT_PROFILE, type ClientProfile } from '../lib/demo/clientProfiles';
+import { getAgentDisplayName } from '../lib/agentDisplayNames';
+import { loadStructuringTrace } from '../lib/documentStructuringAgent';
+import type { EnhancedStructuringTrace } from '../lib/types/structuring';
+import ScopePlanningTrace, { type BatchReviewTrace } from './ScopePlanningTrace';
+import GraphTrace from './GraphTrace'; // Flow2
+import ConflictPanel from './ConflictPanel'; // Flow2 Milestone B
+import GapPanel from './GapPanel'; // Flow2 Milestone B
+import SkillsPanel from './SkillsPanel'; // Phase A
+import GraphDefinitionPanel from './GraphDefinitionPanel'; // Phase 3
+import type { SkillDef } from '../lib/skills/types'; // Phase A
+
+interface ReviewConfigDrawerProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  participants: AgentParticipant[];
+  reviewConfig: ReviewConfig;
+  onConfigChange: (config: ReviewConfig) => void;
+  onRunReview: () => void;
+  batchReviewTrace?: BatchReviewTrace | null; // Stage 4: Scope planning trace
+  currentSections?: any[]; // Stage 4: For section title lookup (any to avoid type conflicts)
+  graphReviewTrace?: any | null; // Flow2: Graph trace
+  conflicts?: any[] | null; // Flow2: Conflicts (Milestone A - props only, UI in Milestone B)
+  coverageGaps?: any[] | null; // Flow2: Coverage gaps (Milestone A - props only, UI in Milestone B)
+}
+
+type SelectionMode = 'none' | 'evaluation' | 'rewrite';  // Note: compliance NOT included (always locked)
+
+export default function ReviewConfigDrawer({
+  open,
+  onOpenChange,
+  participants,
+  reviewConfig,
+  onConfigChange,
+  onRunReview,
+  batchReviewTrace,
+  currentSections = [],
+  graphReviewTrace,
+  conflicts = null, // Flow2: Safe default
+  coverageGaps = null // Flow2: Safe default
+}: ReviewConfigDrawerProps) {
+  // Flow2: Safe guards for new props
+  const safeConflicts = conflicts ?? [];
+  const safeCoverageGaps = coverageGaps ?? [];
+  // TAB STATE: Default to 'config' as requested
+  // Stage 4: Add 'planning' tab for scope planning trace
+  // Flow2: Add 'graph' tab for graph trace
+  // Milestone B: Add 'conflicts' and 'gaps' tabs
+  // Phase A: Add 'skills' tab for skill catalog + invocations
+  // Phase 3: Add 'graphDef' tab for graph definition
+  const [activeTab, setActiveTab] = useState<'overview' | 'planning' | 'graph' | 'conflicts' | 'gaps' | 'skills' | 'graphDef' | 'runs' | 'config' | 'timeline'>('config');
+  
+  // Phase A: Skill catalog state
+  const [skillCatalog, setSkillCatalog] = useState<SkillDef[]>([]);
+  
+  // Drawer owns visibilityMode state (Stage 8.1)
+  const [visibilityMode, setVisibilityMode] = useState<VisibilityMode>('reviewer');
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>('none');
+  const [contextForm, setContextForm] = useState<Partial<ClientContext & { contractNumber?: string }>>(reviewConfig.context || {});
+  const [showMessage, setShowMessage] = useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
+  
+  // FIX 1: Client Profile state
+  const [contractId, setContractId] = useState('');
+  const [clientProfile, setClientProfile] = useState<ClientProfile>(DEFAULT_CLIENT_PROFILE);
+  const [contractIdHint, setContractIdHint] = useState('');
+  
+  // Agent Runs state (for Details expansion)
+  const [expandedAgentIndex, setExpandedAgentIndex] = useState<number | null>(null);
+  
+  // Document Structuring Agent trace
+  const [structuringTrace, setStructuringTrace] = useState<EnhancedStructuringTrace | null>(null);
+
+  const visibility = getVisibilityConfig(visibilityMode);
+  
+  // Phase A: Fetch skill catalog on mount
+  useEffect(() => {
+    async function fetchSkillCatalog() {
+      try {
+        const response = await fetch('/api/skills');
+        if (response.ok) {
+          const data = await response.json();
+          setSkillCatalog(data.skills || []);
+        }
+      } catch (error) {
+        console.error('[Skills] Failed to fetch catalog:', error);
+      }
+    }
+    fetchSkillCatalog();
+  }, []);
+  
+  // FIX 1: Initialize with default client profile on mount
+  useEffect(() => {
+    if (!reviewConfig.context || Object.keys(reviewConfig.context).length === 0) {
+      setClientProfile(DEFAULT_CLIENT_PROFILE);
+      setContextForm({
+        clientSegment: DEFAULT_CLIENT_PROFILE.clientSegment as any,
+        jurisdiction: DEFAULT_CLIENT_PROFILE.jurisdiction,
+        riskAppetite: DEFAULT_CLIENT_PROFILE.riskAppetite,
+        productScope: DEFAULT_CLIENT_PROFILE.productScope as any,
+        notes: DEFAULT_CLIENT_PROFILE.notes
+      });
+    }
+  }, []);
+  
+  // Load Document Structuring Agent trace when drawer opens
+  useEffect(() => {
+    if (open && typeof window !== 'undefined') {
+      const docId = sessionStorage.getItem('current_doc_id');
+      if (docId) {
+        const trace = loadStructuringTrace(docId);
+        if (trace) {
+          setStructuringTrace(trace);
+          console.log('[ReviewConfigDrawer] Loaded structuring trace:', trace);
+        }
+      }
+    }
+  }, [open]);
+
+  // Self-healing: on drawer open or config load (Stage 8.10)
+  useEffect(() => {
+    if (open && reviewConfig.context && reviewConfig.locked?.compliance) {
+      const recommendation = recommendAgentBundle(reviewConfig.context);
+      
+      // If compliance doesn't match recommendation, auto-fix
+      if (reviewConfig.selectedAgents.compliance !== recommendation.selectedAgents.compliance) {
+        console.log('[ReviewConfigDrawer] Self-heal: fixing compliance to match context');
+        onConfigChange({
+          ...reviewConfig,
+          selectedAgents: {
+            ...reviewConfig.selectedAgents,
+            compliance: recommendation.selectedAgents.compliance
+          },
+          validationStatus: 'required'
+        });
+        showTemporaryMessage('info', 'Compliance agent auto-corrected to match context. Please validate feasibility.');
+      }
+    }
+  }, [open]);
+
+  const showTemporaryMessage = (type: 'success' | 'info' | 'error', text: string) => {
+    setShowMessage({ type, text });
+    setTimeout(() => setShowMessage(null), 4000);
+  };
+
+  if (!open) return null;
+
+  // Handle contract profile pull (Stage 8.4)
+  const handlePullProfile = (pulledContext: ClientContext & { contractNumber: string; productScope: string[] }) => {
+    const recommendation = recommendAgentBundle(pulledContext);
+
+    const newConfig: ReviewConfig = {
+      ...reviewConfig,
+      profileId: recommendation.profileId,
+      selectedAgents: recommendation.selectedAgents,
+      context: pulledContext,
+      locked: recommendation.locked,
+      validationStatus: 'required',  // Must validate before proceeding
+      validationErrors: [],
+      validationWarnings: []
+    };
+
+    onConfigChange(newConfig);
+    setContextForm(pulledContext);
+    showTemporaryMessage('info', `Profile loaded: ${pulledContext.contractNumber}. Validate feasibility to proceed.`);
+  };
+
+  // Handle manual context edit (Stage 8.5)
+  const handleContextFieldChange = (field: keyof ClientContext, value: any) => {
+    const updatedContext = { ...contextForm, [field]: value };
+    setContextForm(updatedContext);
+
+    // If clientSegment or jurisdiction changed, trigger auto-recommendation
+    if ((field === 'clientSegment' || field === 'jurisdiction') && updatedContext.clientSegment && updatedContext.jurisdiction) {
+      const fullContext = {
+        clientSegment: updatedContext.clientSegment,
+        jurisdiction: updatedContext.jurisdiction,
+        riskAppetite: updatedContext.riskAppetite || 'Medium',
+        productScope: updatedContext.productScope || 'Equities',
+        contractNumber: updatedContext.contractNumber,
+        notes: updatedContext.notes
+      } as ClientContext & { contractNumber?: string };
+
+      const recommendation = recommendAgentBundle(fullContext);
+
+      onConfigChange({
+        ...reviewConfig,
+        profileId: recommendation.profileId,
+        selectedAgents: recommendation.selectedAgents,
+        context: fullContext,
+        locked: recommendation.locked,
+        validationStatus: 'required'
+      });
+
+      showTemporaryMessage('info', 'Agent bundle updated based on context. Validate feasibility to proceed.');
+    }
+  };
+
+  // Handle agent selection (Stage 8.9 - only for optional agents, only in Explainability)
+  const handleSelectAgent = (category: AgentCategory, agentId: string) => {
+    const newSelectedAgents = { ...reviewConfig.selectedAgents, [category]: agentId };
+
+    onConfigChange({
+      ...reviewConfig,
+      selectedAgents: newSelectedAgents,
+      validationStatus: 'required'  // Any manual change requires re-validation
+    });
+
+    setSelectionMode('none');
+    showTemporaryMessage('info', 'Agent selection changed. Validate feasibility to proceed.');
+  };
+
+  // Handle feasibility validation (Stage 8.6)
+  const handleValidateFeasibility = () => {
+    if (!reviewConfig.context) {
+      showTemporaryMessage('error', 'No context available. Pull a contract profile or enter context manually.');
+      return;
+    }
+
+    const result = validateAgentFeasibility(reviewConfig.context, reviewConfig.selectedAgents);
+
+    onConfigChange({
+      ...reviewConfig,
+      validationStatus: result.valid ? 'valid' : 'failed',
+      validationErrors: result.errors,
+      validationWarnings: result.warnings,
+      lastValidatedAt: new Date().toISOString()
+    });
+
+    if (result.valid) {
+      showTemporaryMessage('success', '✓ Agent configuration is valid. You can now run review.');
+    } else {
+      showTemporaryMessage('error', '✗ Validation failed. Review errors below.');
+    }
+  };
+
+  // Gating logic (Stage 8.7)
+  const isGated = reviewConfig.validationStatus === 'required' || reviewConfig.validationStatus === 'failed';
+  const canRunReview = !isGated || reviewConfig.validationStatus === undefined;  // undefined = backward compat, don't gate
+
+  const handleResetToRecommended = () => {
+    const defaultConfig: ReviewConfig = {
+      profileId: 'compliance-standard-v1',
+      selectedAgents: {
+        compliance: 'compliance_standard_v1',
+        evaluation: 'evaluation_standard_v1',
+        rewrite: 'rewrite_standard_v1'
+      }
+    };
+    onConfigChange(defaultConfig);
+    setContextForm({});
+    showTemporaryMessage('success', 'Reset to default configuration.');
+  };
+  
+  // FIX 1: Handle contract ID change
+  const handleContractIdChange = (id: string) => {
+    setContractId(id);
+    const { profile, found } = getClientProfile(id);
+    
+    setClientProfile(profile);
+    setContextForm({
+      clientSegment: profile.clientSegment as any,
+      jurisdiction: profile.jurisdiction,
+      riskAppetite: profile.riskAppetite,
+      productScope: profile.productScope as any,
+      notes: profile.notes,
+      contractNumber: profile.contractId
+    });
+    
+    if (id.trim() && !found) {
+      setContractIdHint('Unknown contract ID; using default profile');
+    } else if (found) {
+      setContractIdHint(`✓ Profile loaded for contract ${id}`);
+    } else {
+      setContractIdHint('');
+    }
+  };
+
+  const handleUpdateProfile = () => {
+    if (!contextForm.clientSegment || !contextForm.jurisdiction || !contextForm.riskAppetite || !contextForm.productScope) {
+      showTemporaryMessage('error', 'Please fill in all required context fields');
+      return;
+    }
+
+    const fullContext = contextForm as ClientContext & { contractNumber?: string };
+    const recommendation = recommendAgentBundle(fullContext);
+
+    const newConfig: ReviewConfig = {
+      ...reviewConfig,
+      profileId: recommendation.profileId,
+      selectedAgents: recommendation.selectedAgents,
+      context: fullContext,
+      locked: recommendation.locked,
+      validationStatus: 'required'
+    };
+
+    onConfigChange(newConfig);
+    showTemporaryMessage('info', 'Profile updated. Validate feasibility to proceed.');
+  };
+
+  const getActiveAgentsCount = () => {
+    return Object.values(reviewConfig.selectedAgents).filter(Boolean).length;
+  };
+
+  const getTotalChecksCount = () => {
+    let count = 0;
+    Object.values(reviewConfig.selectedAgents).forEach(agentId => {
+      if (agentId) {
+        const agent = getAgentVariant(agentId);
+        if (agent) count += agent.skills.length;
+      }
+    });
+    return count;
+  };
+
+  const getDependencyChain = (): string => {
+    const chain: string[] = [];
+    if (reviewConfig.selectedAgents.compliance) {
+      chain.push(AGENT_VARIANTS[reviewConfig.selectedAgents.compliance]?.name || 'Compliance');
+    }
+    if (reviewConfig.selectedAgents.evaluation) {
+      chain.push(AGENT_VARIANTS[reviewConfig.selectedAgents.evaluation]?.name || 'Evaluation');
+    }
+    if (reviewConfig.selectedAgents.rewrite) {
+      chain.push(AGENT_VARIANTS[reviewConfig.selectedAgents.rewrite]?.name || 'Rewrite');
+    }
+    return chain.join(' → ');
+  };
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div 
+        className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50"
+        onClick={() => onOpenChange(false)}
+      />
+      
+      {/* Drawer */}
+      <div className="fixed right-0 top-0 bottom-0 w-full max-w-3xl bg-white shadow-2xl z-50 overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b-2 border-slate-200 bg-slate-50">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800">Review Configuration & Agents</h2>
+            <p className="text-sm text-slate-600 mt-1">Governed agent selection and client context</p>
+          </div>
+          <button
+            onClick={() => onOpenChange(false)}
+            className="p-2 hover:bg-slate-200 rounded-lg transition-colors text-slate-600"
+            aria-label="Close drawer"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Visibility Mode Toggle (Stage 8.2) */}
+        <div className="px-6 py-4 bg-white border-b border-slate-200">
+          <div className="flex gap-2">
+            {(['reviewer', 'why', 'explainability'] as VisibilityMode[]).map(mode => (
+              <button
+                key={mode}
+                onClick={() => setVisibilityMode(mode)}
+                className={`flex-1 px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
+                  visibilityMode === mode
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                {mode === 'reviewer' && '👤 Reviewer'}
+                {mode === 'why' && '💡 Why'}
+                {mode === 'explainability' && '🔬 Explainability'}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Selection Mode Sub-Panel (Only for optional agents in Explainability) */}
+          {selectionMode !== 'none' && visibility.showAgentSelection && (
+            <div className="absolute inset-0 bg-white z-10 flex flex-col">
+              <div className="p-6 border-b-2 border-slate-200 bg-slate-50">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-slate-800">
+                    Select {selectionMode === 'evaluation' ? 'Evaluation' : 'Rewrite'} Agent
+                  </h3>
+                  <button
+                    onClick={() => setSelectionMode('none')}
+                    className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors font-medium"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 space-y-3">
+                {getAgentsByCategory(selectionMode as AgentCategory).map(agent => {
+                  const isSelected = reviewConfig.selectedAgents[selectionMode as AgentCategory] === agent.id;
+                  
+                  return (
+                    <button
+                      key={agent.id}
+                      onClick={() => handleSelectAgent(selectionMode as AgentCategory, agent.id)}
+                      className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-slate-200 hover:border-blue-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h4 className="font-bold text-slate-800">{agent.name}</h4>
+                          <span className="text-xs text-slate-500">{agent.version}</span>
+                        </div>
+                        {isSelected && (
+                          <span className="px-2 py-1 bg-blue-600 text-white text-xs font-bold rounded">
+                            SELECTED
+                          </span>
+                        )}
+                      </div>
+                      
+                      <p className="text-sm text-slate-600 mb-3">{agent.description}</p>
+                      
+                      {visibility.showAgentSkills && agent.applicableTo && (
+                        <div className="mb-2">
+                          <div className="text-xs font-semibold text-slate-700 mb-1">Applicable to:</div>
+                          <p className="text-xs text-slate-600">{agent.applicableTo.note}</p>
+                        </div>
+                      )}
+                      
+                      {visibility.showAgentSkills && (
+                        <div>
+                          <div className="text-xs font-semibold text-slate-700 mb-1">Skills:</div>
+                          <div className="flex flex-wrap gap-1">
+                            {agent.skills.map((skill, idx) => (
+                              <span key={idx} className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          
+          {/* Main Content */}
+          <div className="p-6 space-y-6">
+            {/* Message Banner */}
+            {showMessage && (
+              <div className={`p-3 rounded-lg border-2 text-sm font-semibold ${
+                showMessage.type === 'success' ? 'bg-green-50 border-green-300 text-green-800' :
+                showMessage.type === 'error' ? 'bg-red-50 border-red-300 text-red-800' :
+                'bg-blue-50 border-blue-300 text-blue-800'
+              }`}>
+                {showMessage.text}
+              </div>
+            )}
+
+            {/* Validation Status Banner (Stage 8.6) */}
+            {visibility.showValidation && reviewConfig.validationStatus && (
+              <div className={`p-4 rounded-lg border-2 ${
+                reviewConfig.validationStatus === 'valid' ? 'bg-green-50 border-green-300' :
+                reviewConfig.validationStatus === 'failed' ? 'bg-red-50 border-red-300' :
+                'bg-yellow-50 border-yellow-300'
+              }`}>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="font-bold text-sm mb-1">
+                      {reviewConfig.validationStatus === 'valid' && '✓ Configuration Valid'}
+                      {reviewConfig.validationStatus === 'failed' && '✗ Validation Failed'}
+                      {reviewConfig.validationStatus === 'required' && '⚠ Validation Required'}
+                    </div>
+                    {reviewConfig.validationErrors && reviewConfig.validationErrors.length > 0 && (
+                      <ul className="text-xs space-y-1 mt-2">
+                        {reviewConfig.validationErrors.map((err, idx) => (
+                          <li key={idx} className="text-red-700">• {err}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {reviewConfig.validationStatus === 'required' && (
+                      <p className="text-xs mt-1 text-slate-700">
+                        Click "Validate Agent Feasibility" below to check if agent selection matches context.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* TAB NAVIGATION */}
+            <div className="flex gap-2 border-b-2 border-slate-200 pb-0 mb-6">
+              <button
+                onClick={() => setActiveTab('overview')}
+                className={`px-4 py-2 font-semibold text-sm transition-all border-b-2 -mb-[2px] ${
+                  activeTab === 'overview'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-slate-600 hover:text-slate-800'
+                }`}
+              >
+                📊 Overview
+              </button>
+              {/* Stage 4: Scope Planning tab - only show if batch review trace exists (Flow1) */}
+              {batchReviewTrace && batchReviewTrace.scopePlan && (
+                <button
+                  onClick={() => setActiveTab('planning')}
+                  className={`px-4 py-2 font-semibold text-sm transition-all border-b-2 -mb-[2px] ${
+                    activeTab === 'planning'
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-slate-600 hover:text-slate-800'
+                  }`}
+                >
+                  🎯 Scope Planning
+                </button>
+              )}
+              {/* Flow2: Graph Trace tab - only show if graph review trace exists */}
+              {graphReviewTrace && (
+                <button
+                  onClick={() => setActiveTab('graph')}
+                  className={`px-4 py-2 font-semibold text-sm transition-all border-b-2 -mb-[2px] ${
+                    activeTab === 'graph'
+                      ? 'border-purple-600 text-purple-600'
+                      : 'border-transparent text-slate-600 hover:text-slate-800'
+                  }`}
+                >
+                  🕸️ Graph Trace
+                </button>
+              )}
+              {/* Flow2 Milestone B: Conflicts tab - only show when conflicts exist */}
+              {safeConflicts.length > 0 && (
+                <button
+                  onClick={() => setActiveTab('conflicts')}
+                  className={`px-4 py-2 font-semibold text-sm transition-all border-b-2 -mb-[2px] ${
+                    activeTab === 'conflicts'
+                      ? 'border-red-600 text-red-600'
+                      : 'border-transparent text-slate-600 hover:text-slate-800'
+                  }`}
+                >
+                  ⚔️ Conflicts ({safeConflicts.length})
+                </button>
+              )}
+              {/* Flow2 Milestone B: Gaps tab - only show when coverage gaps exist */}
+              {safeCoverageGaps.length > 0 && (
+                <button
+                  onClick={() => setActiveTab('gaps')}
+                  className={`px-4 py-2 font-semibold text-sm transition-all border-b-2 -mb-[2px] ${
+                    activeTab === 'gaps'
+                      ? 'border-orange-600 text-orange-600'
+                      : 'border-transparent text-slate-600 hover:text-slate-800'
+                  }`}
+                >
+                  🧾 Gaps/EDD ({safeCoverageGaps.length})
+                </button>
+              )}
+              {/* Phase A: Skills tab - always show if graph trace exists */}
+              {graphReviewTrace && (
+                <button
+                  onClick={() => setActiveTab('skills')}
+                  data-testid="skills-tab-button"
+                  className={`px-4 py-2 font-semibold text-sm transition-all border-b-2 -mb-[2px] ${
+                    activeTab === 'skills'
+                      ? 'border-indigo-600 text-indigo-600'
+                      : 'border-transparent text-slate-600 hover:text-slate-800'
+                  }`}
+                >
+                  ⚡ Skills
+                </button>
+              )}
+              {/* Phase 3: Graph Definition tab - show if graph metadata present */}
+              {graphReviewTrace?.graph && (
+                <button
+                  onClick={() => setActiveTab('graphDef')}
+                  data-testid="graph-definition-tab-button"
+                  className={`px-4 py-2 font-semibold text-sm transition-all border-b-2 -mb-[2px] ${
+                    activeTab === 'graphDef'
+                      ? 'border-teal-600 text-teal-600'
+                      : 'border-transparent text-slate-600 hover:text-slate-800'
+                  }`}
+                >
+                  📐 Graph
+                </button>
+              )}
+              <button
+                onClick={() => setActiveTab('runs')}
+                className={`px-4 py-2 font-semibold text-sm transition-all border-b-2 -mb-[2px] ${
+                  activeTab === 'runs'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-slate-600 hover:text-slate-800'
+                }`}
+              >
+                🤖 Agent Runs
+                {participants.length > 0 && (
+                  <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
+                    {participants.length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('config')}
+                className={`px-4 py-2 font-semibold text-sm transition-all border-b-2 -mb-[2px] ${
+                  activeTab === 'config'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-slate-600 hover:text-slate-800'
+                }`}
+              >
+                ⚙️ Configuration
+              </button>
+              <button
+                onClick={() => setActiveTab('timeline')}
+                className={`px-4 py-2 font-semibold text-sm transition-all border-b-2 -mb-[2px] ${
+                  activeTab === 'timeline'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-slate-600 hover:text-slate-800'
+                }`}
+              >
+                📅 Timeline
+              </button>
+            </div>
+            
+            {/* TAB CONTENT: Overview */}
+            {activeTab === 'overview' && (
+              <div className="space-y-6">
+                {/* Document Structuring Agent Trace (LLM-Enhanced) */}
+                {structuringTrace && (
+                  <div className="bg-gradient-to-r from-green-50 to-teal-50 border-2 border-green-300 rounded-lg p-5">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                          <span>🤖</span>
+                          <span>{structuringTrace.agentName}</span>
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Completed in {structuringTrace.totalDurationMs}ms · {structuringTrace.attempts.length} attempt{structuringTrace.attempts.length !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                      <div className="px-3 py-1 bg-green-600 text-white rounded-full text-sm font-bold">
+                        {structuringTrace.finalDecision.totalSections} Sections
+                      </div>
+                    </div>
+
+                    {/* Strategy Attempts with LLM Evaluation */}
+                    <div className="mb-4 space-y-3">
+                      {structuringTrace.attempts.map((attempt: any, idx: number) => {
+                        const isAccepted = attempt.agentDecision === 'accept';
+                        const isFallback = attempt.agentDecision === 'fallback';
+                        
+                        return (
+                          <div key={idx} className="bg-white rounded-lg border-2 border-slate-200 overflow-hidden">
+                            {/* Attempt Header */}
+                            <div className={`p-3 ${isAccepted ? 'bg-green-100' : isFallback ? 'bg-yellow-100' : 'bg-slate-50'}`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-lg">
+                                    {isAccepted ? '✅' : isFallback ? '⚠️' : '🔄'}
+                                  </span>
+                                  <span className="font-semibold text-sm text-slate-800">
+                                    Attempt {attempt.attemptNumber}: {attempt.strategy}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-slate-600">
+                                  {attempt.parseResult.sectionsDetected} section{attempt.parseResult.sectionsDetected !== 1 ? 's' : ''}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="p-3 space-y-2">
+                              {/* Parse Result */}
+                              <div className="text-xs">
+                                <div className="font-semibold text-slate-700">📊 Parse Result:</div>
+                                <div className="text-slate-600 ml-4 mt-1">
+                                  {attempt.parseResult.sectionsDetected} sections detected ({attempt.parseDurationMs}ms)
+                                  {attempt.parseResult.sampleTitles.length > 0 && (
+                                    <div className="mt-1 text-[11px] text-slate-500">
+                                      Sample: {attempt.parseResult.sampleTitles.map((t: string) => `"${t}"`).join(', ')}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* LLM Evaluation */}
+                              {attempt.evaluation && (
+                                <div className="text-xs border-t pt-2">
+                                  <div className="font-semibold text-slate-700 flex items-center gap-1">
+                                    🤖 {attempt.fallbackTriggered ? 'Deterministic Evaluation' : 'LLM Evaluation'}:
+                                    <span className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      attempt.evaluation.llmDecision === 'ACCEPT'
+                                        ? 'bg-green-600 text-white'
+                                        : 'bg-red-500 text-white'
+                                    }`}>
+                                      {attempt.evaluation.llmDecision}
+                                    </span>
+                                    <span className="ml-1 text-slate-500 font-normal">
+                                      (confidence: {Math.round(attempt.evaluation.llmConfidence * 100)}%)
+                                    </span>
+                                  </div>
+                                  
+                                  <div className="text-slate-600 ml-4 mt-1">
+                                    <div className="italic">💭 "{attempt.evaluation.llmReasoning}"</div>
+                                    
+                                    {/* Quality Signals */}
+                                    {!attempt.fallbackTriggered && (
+                                      <div className="mt-2 p-2 bg-slate-50 rounded text-[11px]">
+                                        <div className="font-semibold text-slate-700 mb-1">📈 Quality Signals:</div>
+                                        <div className="space-y-0.5">
+                                          <div>• Title Quality: <span className="font-medium">{attempt.evaluation.qualitySignals.titleQuality}</span></div>
+                                          <div>• Content Distribution: <span className="font-medium">{attempt.evaluation.qualitySignals.contentDistribution}</span></div>
+                                          <div>• Section Count: <span className="font-medium">{attempt.evaluation.qualitySignals.sectionCount}</span></div>
+                                        </div>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Recommended Next Strategy */}
+                                    {attempt.evaluation.recommendedNextStrategy && (
+                                      <div className="mt-2 text-blue-700">
+                                        ➡️ Recommended: Try "{attempt.evaluation.recommendedNextStrategy}"
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Agent Decision */}
+                              <div className="text-xs border-t pt-2">
+                                <div className="font-semibold text-slate-700">⚙️ Agent Decision: 
+                                  <span className={`ml-2 uppercase ${
+                                    isAccepted ? 'text-green-700' : isFallback ? 'text-yellow-700' : 'text-blue-700'
+                                  }`}>
+                                    {attempt.agentDecision}
+                                  </span>
+                                </div>
+                                <div className="text-slate-600 ml-4 mt-1">
+                                  {attempt.agentReasoning}
+                                </div>
+                              </div>
+
+                              {/* Fallback Info */}
+                              {attempt.fallbackTriggered && attempt.fallbackReason && (
+                                <div className="text-xs bg-yellow-50 border border-yellow-200 rounded p-2">
+                                  <span className="font-semibold text-yellow-800">⚠️ Fallback:</span>
+                                  <span className="text-yellow-700 ml-1">{attempt.fallbackReason}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Final Decision */}
+                    <div className="p-4 bg-white rounded-lg border-2 border-green-400">
+                      <div className="flex items-start gap-2">
+                        <span className="text-xl">🎯</span>
+                        <div className="flex-1">
+                          <div className="font-semibold text-sm text-slate-800 mb-2">
+                            Final Decision
+                          </div>
+                          <div className="text-xs space-y-1">
+                            <div className="text-slate-700">
+                              <span className="font-medium">Strategy:</span> {structuringTrace.finalDecision.strategy}
+                            </div>
+                            <div className="text-slate-700">
+                              <span className="font-medium">Sections:</span> {structuringTrace.finalDecision.totalSections}
+                            </div>
+                            <div className="text-slate-600 mt-2">
+                              <span className="font-medium">Acceptance Criteria:</span>
+                              <div className="ml-4 mt-1">{structuringTrace.finalDecision.acceptanceCriteria}</div>
+                            </div>
+                            {structuringTrace.finalDecision.llmInfluence && (
+                              <div className="text-blue-700 mt-2 p-2 bg-blue-50 rounded border border-blue-200">
+                                <span className="font-medium">🤖 LLM Influence:</span>
+                                <div className="ml-4 mt-1">{structuringTrace.finalDecision.llmInfluence}</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Dashboard Summary (from participants data) */}
+                <div className="bg-gradient-to-r from-blue-50 to-slate-50 border-2 border-blue-200 rounded-lg p-5">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Review Overview</h3>
+                  <p className="text-sm text-slate-600 mt-1">Profile: <span className="font-semibold">{reviewConfig.profileId}</span></p>
+                </div>
+                <div className="flex gap-2">
+                  <div className="px-3 py-1 bg-blue-600 text-white rounded-full text-sm font-bold">
+                    {getActiveAgentsCount()} Agents
+                  </div>
+                  <div className="px-3 py-1 bg-slate-600 text-white rounded-full text-sm font-bold">
+                    {getTotalChecksCount()} Checks
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mb-4 p-3 bg-white rounded border border-slate-200">
+                <div className="text-xs font-semibold text-slate-700 mb-1">Dependency Chain:</div>
+                <div className="text-sm text-slate-800 font-medium">{getDependencyChain()}</div>
+              </div>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={onRunReview}
+                  disabled={isGated}
+                  className={`flex-1 px-4 py-2 rounded-lg transition-colors font-semibold text-sm ${
+                    isGated
+                      ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                  title={isGated ? 'Validate agent feasibility first' : 'Run full review'}
+                >
+                  🔄 Re-run Review
+                </button>
+                <button
+                  onClick={handleResetToRecommended}
+                  className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors font-semibold text-sm"
+                >
+                  ↻ Reset to Default
+                </button>
+              </div>
+                
+                {/* Participant Summary */}
+                {participants.length > 0 && (
+                  <div className="bg-white border-2 border-slate-200 rounded-lg p-4">
+                    <h3 className="text-sm font-bold text-slate-700 mb-3">Agent Participation</h3>
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div>
+                        <div className="text-2xl font-bold text-blue-600">{participants.length}</div>
+                        <div className="text-xs text-slate-600">Agents Run</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold text-slate-800">
+                          {participants.reduce((sum, p) => sum + p.counts.issuesTotal, 0)}
+                        </div>
+                        <div className="text-xs text-slate-600">Issues Found</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold text-green-600">
+                          {participants.reduce((sum, p) => sum + p.counts.proposedTexts, 0)}
+                        </div>
+                        <div className="text-xs text-slate-600">Fixes Proposed</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            )}
+            
+            {/* Stage 4: Scope Planning Tab Content (Flow1) */}
+            {activeTab === 'planning' && batchReviewTrace && (
+              <ScopePlanningTrace
+                trace={batchReviewTrace}
+                allSections={currentSections}
+              />
+            )}
+            
+            {/* Flow2: Graph Trace Tab Content */}
+            {activeTab === 'graph' && graphReviewTrace && (
+              <GraphTrace trace={graphReviewTrace} />
+            )}
+            
+            {/* Flow2 Milestone B: Conflicts Tab Content */}
+            {activeTab === 'conflicts' && (
+              <div className="p-6">
+                <ConflictPanel conflicts={safeConflicts} />
+              </div>
+            )}
+            
+            {/* Flow2 Milestone B: Gaps Tab Content */}
+            {activeTab === 'gaps' && (
+              <div className="p-6">
+                <GapPanel gaps={safeCoverageGaps} />
+              </div>
+            )}
+            
+            {/* Phase A: Skills Tab Content */}
+            {activeTab === 'skills' && (
+              <div className="p-6">
+                <SkillsPanel 
+                  catalog={skillCatalog} 
+                  invocations={graphReviewTrace?.skillInvocations || []} 
+                />
+              </div>
+            )}
+            
+            {/* Phase 3: Graph Definition Tab Content */}
+            {activeTab === 'graphDef' && graphReviewTrace?.graph && (
+              <div className="p-6">
+                <GraphDefinitionPanel
+                  graph={graphReviewTrace.graph}
+                  graphDefinition={graphReviewTrace.graphDefinition}
+                  graphDiff={graphReviewTrace.graphDiff}
+                />
+              </div>
+            )}
+            
+            {/* TAB CONTENT: Agent Runs */}
+            {activeTab === 'runs' && (
+              <div className="space-y-4">
+                {participants.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500">
+                    <div className="text-4xl mb-3">🤖</div>
+                    <p className="font-semibold">No agent runs yet</p>
+                    <p className="text-sm mt-1">Run a review to see agent execution results</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">
+                      Agent Execution Results
+                    </h3>
+                    {participants.map((participant, index) => {
+                      const isExpanded = expandedAgentIndex === index;
+                      const displayName = getAgentDisplayName(participant.agentId);
+                      
+                      return (
+                        <div
+                          key={participant.agentId}
+                          className="border-2 border-slate-200 bg-white rounded-lg overflow-hidden"
+                        >
+                          {/* Agent Card - Collapsed State */}
+                          <div
+                            onClick={() => setExpandedAgentIndex(isExpanded ? null : index)}
+                            className="px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="mt-1">
+                                {participant.counts.critical > 0 || participant.counts.high > 0 ? (
+                                  <span className="text-red-600 font-bold text-lg">✗</span>
+                                ) : participant.counts.issuesTotal > 0 ? (
+                                  <span className="text-yellow-600 font-bold text-lg">⚠</span>
+                                ) : (
+                                  <span className="text-green-600 font-bold text-lg">✓</span>
+                                )}
+                              </div>
+                              
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-4 mb-2">
+                                  <div className="font-bold text-slate-800">{displayName}</div>
+                                  <div className="text-xs text-slate-600 shrink-0">
+                                    {isExpanded ? '▲' : '▼'} Details
+                                  </div>
+                                </div>
+                                
+                                {/* What it checked */}
+                                <div className="text-sm text-slate-700 mb-1">
+                                  <span className="font-semibold">What it checked:</span>{' '}
+                                  {participant.roleType === 'compliance' && 'Prohibited terms & policy rules'}
+                                  {participant.roleType === 'evaluation' && 'Section completeness & disclaimers'}
+                                  {participant.roleType === 'optimization' && 'Content quality & wording improvements'}
+                                  {participant.roleType === 'orchestration' && 'Workflow coordination & execution flow'}
+                                  {participant.roleType === 'client-facing' && 'Evidence gaps & information requests'}
+                                </div>
+                                
+                                {/* Key findings - concise */}
+                                <div className="text-sm text-slate-700 flex flex-wrap gap-2">
+                                  {participant.counts.issuesTotal > 0 ? (
+                                    <>
+                                      {participant.counts.critical > 0 && (
+                                        <span className="px-2 py-0.5 bg-red-100 text-red-800 text-xs font-semibold rounded">
+                                          {participant.counts.critical} Critical
+                                        </span>
+                                      )}
+                                      {participant.counts.high > 0 && (
+                                        <span className="px-2 py-0.5 bg-orange-100 text-orange-800 text-xs font-semibold rounded">
+                                          {participant.counts.high} High
+                                        </span>
+                                      )}
+                                      {participant.counts.medium > 0 && (
+                                        <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded">
+                                          {participant.counts.medium} Medium
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="text-green-700 font-semibold text-xs">✓ No issues detected</span>
+                                  )}
+                                  
+                                  {participant.counts.proposedTexts > 0 && (
+                                    <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs font-semibold rounded">
+                                      {participant.counts.proposedTexts} Fix{participant.counts.proposedTexts > 1 ? 'es' : ''} Proposed
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Expanded Details Section */}
+                          {isExpanded && (
+                            <div className="px-4 pb-3 border-t-2 border-slate-200 bg-slate-50 space-y-3 pt-3">
+                              <div>
+                                <div className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">
+                                  🐛 Debug Information
+                                </div>
+                                <div className="bg-white border border-slate-300 rounded p-3 space-y-1 text-xs font-mono">
+                                  <div>
+                                    <span className="text-slate-600">System Name:</span>{' '}
+                                    <span className="text-slate-900 font-semibold">{participant.agentId}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-600">Role Type:</span>{' '}
+                                    <span className="text-slate-900">{participant.roleType}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-600">Issues Total:</span>{' '}
+                                    <span className="text-slate-900">{participant.counts.issuesTotal}</span>
+                                  </div>
+                                  {participant.counts.checklists > 0 && (
+                                    <div>
+                                      <span className="text-slate-600">Checklists Generated:</span>{' '}
+                                      <span className="text-slate-900">{participant.counts.checklists}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* TAB CONTENT: Configuration */}
+            {activeTab === 'config' && (
+              <div className="space-y-6">
+                {/* Review Overview moved from above */}
+                <div className="bg-gradient-to-r from-blue-50 to-slate-50 border-2 border-blue-200 rounded-lg p-5">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-800">Review Configuration</h3>
+                      <p className="text-sm text-slate-600 mt-1">Profile: <span className="font-semibold">{reviewConfig.profileId}</span></p>
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="px-3 py-1 bg-blue-600 text-white rounded-full text-sm font-bold">
+                        {getActiveAgentsCount()} Agents
+                      </div>
+                      <div className="px-3 py-1 bg-slate-600 text-white rounded-full text-sm font-bold">
+                        {getTotalChecksCount()} Checks
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mb-4 p-3 bg-white rounded border border-slate-200">
+                    <div className="text-xs font-semibold text-slate-700 mb-1">Dependency Chain:</div>
+                    <div className="text-sm text-slate-800 font-medium">{getDependencyChain()}</div>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button
+                      onClick={onRunReview}
+                      disabled={isGated}
+                      className={`flex-1 px-4 py-2 rounded-lg transition-colors font-semibold text-sm ${
+                        isGated
+                          ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                          : 'bg-blue-600 text-white hover:bg-blue-700'
+                      }`}
+                      title={isGated ? 'Validate agent feasibility first' : 'Run full review'}
+                    >
+                      🔄 Re-run Review
+                    </button>
+                    <button
+                      onClick={handleResetToRecommended}
+                      className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors font-semibold text-sm"
+                    >
+                      ↻ Reset to Default
+                    </button>
+                  </div>
+                </div>
+
+            {/* Contract Profile Panel (Stage 8.3 - only in Explainability) */}
+            {visibility.showContractInput && (
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-3">Contract Lookup</h3>
+                <ContractProfilePanel onPull={handlePullProfile} />
+              </div>
+            )}
+
+            {/* Context Display (Stage 8.3 - shown in Why & Explainability) */}
+            {visibility.showContextDetails && reviewConfig.context && (
+              <div className="bg-slate-50 border-2 border-slate-200 rounded-lg p-4">
+                <h3 className="text-lg font-bold text-slate-800 mb-3">Current Context</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="font-semibold text-slate-700">Segment:</span>{' '}
+                    <span className="text-slate-900">{reviewConfig.context.clientSegment}</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-700">Jurisdiction:</span>{' '}
+                    <span className="text-slate-900">{reviewConfig.context.jurisdiction}</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-700">Risk:</span>{' '}
+                    <span className="text-slate-900">{reviewConfig.context.riskAppetite}</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold text-slate-700">Products:</span>{' '}
+                    <span className="text-slate-900">
+                      {Array.isArray(reviewConfig.context.productScope)
+                        ? reviewConfig.context.productScope.join(', ')
+                        : reviewConfig.context.productScope}
+                    </span>
+                  </div>
+                  {reviewConfig.context.contractNumber && (
+                    <div className="col-span-2">
+                      <span className="font-semibold text-slate-700">Contract:</span>{' '}
+                      <span className="text-slate-900">{reviewConfig.context.contractNumber}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* 2) Agent Categories (Governed Selection) */}
+            <div>
+              <h3 className="text-lg font-bold text-slate-800 mb-3">Agent Categories</h3>
+              
+              <div className="space-y-3">
+                {/* Compliance Checks (MANDATORY - LOCKED) */}
+                {(() => {
+                  const selectedAgentId = reviewConfig.selectedAgents.compliance;
+                  const selectedAgent = selectedAgentId ? getAgentVariant(selectedAgentId) : null;
+                  const isLocked = reviewConfig.locked?.compliance === true;
+                  
+                  return (
+                    <div className="border-2 border-red-300 bg-red-50 rounded-lg p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <h4 className="font-bold text-slate-800">
+                            Compliance Checks
+                            <span className="ml-2 px-2 py-0.5 bg-red-600 text-white text-[10px] font-bold rounded uppercase">
+                              Mandatory
+                            </span>
+                            {isLocked && (
+                              <span className="ml-2 px-2 py-0.5 bg-slate-700 text-white text-[10px] font-bold rounded">
+                                🔒 Locked by Policy
+                              </span>
+                            )}
+                          </h4>
+                          {selectedAgent && (
+                            <p className="text-sm text-slate-700 mt-1">
+                              <span className="font-semibold">{selectedAgent.name}</span> ({selectedAgent.version})
+                            </p>
+                          )}
+                        </div>
+                        {/* No Select button if locked (Stage 8.8) */}
+                        {!isLocked && visibility.showAgentSelection && (
+                          <button
+                            onClick={() => alert('Compliance agent selection is locked by context policy')}
+                            className="px-3 py-1 bg-slate-400 text-white rounded cursor-not-allowed text-xs font-semibold"
+                            disabled
+                          >
+                            Locked
+                          </button>
+                        )}
+                      </div>
+                      
+                      {selectedAgent && visibility.showAgentSkills && (
+                        <div className="mb-2">
+                          <div className="text-xs font-semibold text-slate-700 mb-1">Skills:</div>
+                          <div className="flex flex-wrap gap-1">
+                            {selectedAgent.skills.map((skill, idx) => (
+                              <span key={idx} className="px-2 py-0.5 bg-white text-slate-700 text-xs rounded border border-red-200">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+                
+                {/* Evaluation (OPTIONAL) */}
+                {(() => {
+                  const selectedAgentId = reviewConfig.selectedAgents.evaluation;
+                  const selectedAgent = selectedAgentId ? getAgentVariant(selectedAgentId) : null;
+                  
+                  return (
+                    <div className="border-2 border-blue-300 bg-blue-50 rounded-lg p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <h4 className="font-bold text-slate-800">
+                            Evaluation
+                            <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded uppercase">
+                              Optional
+                            </span>
+                          </h4>
+                          {selectedAgent && (
+                            <p className="text-sm text-slate-700 mt-1">
+                              <span className="font-semibold">{selectedAgent.name}</span> ({selectedAgent.version})
+                            </p>
+                          )}
+                        </div>
+                        {visibility.showAgentSelection && (
+                          <button
+                            onClick={() => setSelectionMode('evaluation')}
+                            className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs font-semibold"
+                          >
+                            Select Agent
+                          </button>
+                        )}
+                      </div>
+                      
+                      {selectedAgent && visibility.showAgentSkills && (
+                        <div className="mb-2">
+                          <div className="text-xs font-semibold text-slate-700 mb-1">Skills:</div>
+                          <div className="flex flex-wrap gap-1">
+                            {selectedAgent.skills.map((skill, idx) => (
+                              <span key={idx} className="px-2 py-0.5 bg-white text-slate-700 text-xs rounded border border-blue-200">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+                
+                {/* Rewrite (OPTIONAL) */}
+                {(() => {
+                  const selectedAgentId = reviewConfig.selectedAgents.rewrite;
+                  const selectedAgent = selectedAgentId ? getAgentVariant(selectedAgentId) : null;
+                  
+                  return (
+                    <div className="border-2 border-green-300 bg-green-50 rounded-lg p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <h4 className="font-bold text-slate-800">
+                            Rewrite / Remediation
+                            <span className="ml-2 px-2 py-0.5 bg-green-600 text-white text-[10px] font-bold rounded uppercase">
+                              Optional
+                            </span>
+                          </h4>
+                          {selectedAgent && (
+                            <p className="text-sm text-slate-700 mt-1">
+                              <span className="font-semibold">{selectedAgent.name}</span> ({selectedAgent.version})
+                            </p>
+                          )}
+                        </div>
+                        {visibility.showAgentSelection && (
+                          <button
+                            onClick={() => setSelectionMode('rewrite')}
+                            className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-xs font-semibold"
+                          >
+                            Select Agent
+                          </button>
+                        )}
+                      </div>
+                      
+                      {selectedAgent && visibility.showAgentSkills && (
+                        <div className="mb-2">
+                          <div className="text-xs font-semibold text-slate-700 mb-1">Skills:</div>
+                          <div className="flex flex-wrap gap-1">
+                            {selectedAgent.skills.map((skill, idx) => (
+                              <span key={idx} className="px-2 py-0.5 bg-white text-slate-700 text-xs rounded border border-green-200">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Validate Feasibility Button (Stage 8.6 - only in Explainability) */}
+            {visibility.showValidation && (
+              <button
+                onClick={handleValidateFeasibility}
+                disabled={!reviewConfig.context}
+                className={`w-full px-4 py-3 rounded-lg font-bold text-sm ${
+                  !reviewConfig.context
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                    : 'bg-purple-600 text-white hover:bg-purple-700'
+                }`}
+              >
+                🔍 Validate Agent Feasibility
+              </button>
+            )}
+            
+            {/* 3) Context Inputs (only in Explainability) */}
+            {visibility.showContextDetails && (
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-3">
+                  Client Profile Overview
+                </h3>
+                
+                {/* FIX 1: Contract ID Input */}
+                <div className="mb-4 bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Contract ID (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={contractId}
+                    onChange={(e) => handleContractIdChange(e.target.value)}
+                    placeholder="e.g., 12345678 or 87654321"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  {contractIdHint && (
+                    <p className={`text-xs mt-1.5 ${contractIdHint.includes('✓') ? 'text-green-700' : 'text-slate-600'}`}>
+                      {contractIdHint}
+                    </p>
+                  )}
+                  <p className="text-xs text-slate-500 mt-1">
+                    Enter contract ID to load predefined profile (12345678 → UHNW/SG, 87654321 → CIC/CH)
+                  </p>
+                </div>
+                
+                <div className="bg-slate-50 border-2 border-slate-200 rounded-lg p-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Client Segment *
+                      </label>
+                      <select
+                        value={contextForm.clientSegment || ''}
+                        onChange={(e) => handleContextFieldChange('clientSegment', e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Select...</option>
+                        <option value="Retail">Retail</option>
+                        <option value="HNW">HNW (High Net Worth)</option>
+                        <option value="UHNW">UHNW (Ultra High Net Worth)</option>
+                        <option value="CIC">CIC</option>
+                        <option value="Institutional">Institutional</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Jurisdiction *
+                      </label>
+                      <select
+                        value={contextForm.jurisdiction || ''}
+                        onChange={(e) => handleContextFieldChange('jurisdiction', e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Select...</option>
+                        <option value="SG">Singapore (SG)</option>
+                        <option value="EU">European Union (EU)</option>
+                        <option value="CH">Switzerland (CH)</option>
+                        <option value="UK">United Kingdom (UK)</option>
+                        <option value="US">United States (US)</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Risk Appetite *
+                      </label>
+                      <select
+                        value={contextForm.riskAppetite || ''}
+                        onChange={(e) => handleContextFieldChange('riskAppetite', e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Select...</option>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Product Scope *
+                      </label>
+                      <select
+                        value={Array.isArray(contextForm.productScope) ? contextForm.productScope[0] : contextForm.productScope || ''}
+                        onChange={(e) => handleContextFieldChange('productScope', e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Select...</option>
+                        <option value="Equities">Equities</option>
+                        <option value="Derivatives">Derivatives</option>
+                        <option value="Structured Products">Structured Products</option>
+                        <option value="Alternatives">Alternatives</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={handleUpdateProfile}
+                    disabled={isGated && reviewConfig.validationStatus !== 'required'}
+                    className={`w-full px-4 py-3 rounded-lg font-bold ${
+                      isGated && reviewConfig.validationStatus !== 'required'
+                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-700 text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    📋 Update Review Profile
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Runtime Participation (Last Review) */}
+            {participants.length > 0 && (
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-3">
+                  Runtime Participation
+                  <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 text-xs font-semibold rounded">
+                    Last Review
+                  </span>
+                </h3>
+                
+                <div className="space-y-3">
+                  {participants.map(participant => (
+                    <div 
+                      key={participant.agentId}
+                      className="p-4 bg-slate-50 border-2 border-slate-200 rounded-lg"
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h4 className="font-bold text-slate-800">{participant.displayName}</h4>
+                          <span className="text-xs text-slate-500 uppercase tracking-wide">{participant.roleType}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-2 mt-3">
+                        {participant.counts.issuesTotal > 0 && (
+                          <div className="bg-white p-2 rounded border border-slate-200">
+                            <div className="text-xs text-slate-600">Issues</div>
+                            <div className="text-lg font-bold text-slate-800">{participant.counts.issuesTotal}</div>
+                          </div>
+                        )}
+                        
+                        {participant.counts.proposedTexts > 0 && (
+                          <div className="bg-white p-2 rounded border border-slate-200">
+                            <div className="text-xs text-slate-600">Proposed Texts</div>
+                            <div className="text-lg font-bold text-blue-800">{participant.counts.proposedTexts}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+                {/* System Components (Non-configurable) */}
+                <details className="group">
+                  <summary className="cursor-pointer p-4 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-150 transition-colors">
+                    <span className="font-semibold text-slate-700">
+                      System Components (Non-configurable)
+                      <span className="ml-2 text-slate-500 text-sm">▼</span>
+                    </span>
+                  </summary>
+                  <div className="mt-2 p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                    <div>
+                      <h5 className="font-bold text-slate-700 text-sm">Orchestrator</h5>
+                      <p className="text-xs text-slate-600">Coordinates agent execution and manages workflow dependencies</p>
+                    </div>
+                    <div>
+                      <h5 className="font-bold text-slate-700 text-sm">Trace Logger</h5>
+                      <p className="text-xs text-slate-600">Records execution traces for audit and explainability</p>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            )}
+            
+            {/* TAB CONTENT: Timeline */}
+            {activeTab === 'timeline' && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">
+                  Execution Timeline
+                </h3>
+                
+                <div className="text-center py-12 text-slate-500">
+                  <div className="text-4xl mb-3">📅</div>
+                  <p className="font-semibold">Timeline not available</p>
+                  <p className="text-sm mt-1">Event timeline will be added in a future update</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}

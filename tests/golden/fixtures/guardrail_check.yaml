@@ -1,0 +1,33 @@
+# Golden Test Case: Guardrail Check
+# Route: guardrail_check
+# Description: Pre-review guardrail - blocks wrong document or BR mismatch
+
+test_name: "Guardrail Check - Pre-Review Validation"
+
+input:
+  trigger: "File upload validation (pre-review)"
+  context:
+    mode: "pre_check"
+    documents:
+      - filename: "suspect_document.pdf"
+        type: "kyc_document"
+    validation_flags:
+      - "check_high_risk_keywords"
+      - "check_document_type"
+
+expected:
+  route_id: "guardrail_check"
+  required_skills:
+    - "policy_bundle:high_risk_keywords"
+  flags:
+    - "pre_review"
+    - "guardrail_enabled"
+  hitl: false
+
+# Note: No topic_ids or template_id for guardrail checks
+
+# Ignored (non-deterministic / LLM-generated):
+# - Validation details
+# - Error messages
+# - run_id, message_id
+# - Timestamps

@@ -1,0 +1,26 @@
+BANK STATEMENT
+Account Holder: John Smith
+Account Number: 1234567890
+Period: January 1, 2024 - January 31, 2024
+
+Transaction History:
+Date        Description                  Debit       Credit      Balance
+2024-01-01  Opening Balance                                      $25,430.00
+2024-01-05  Wire Transfer - Salary                   $8,500.00   $33,930.00
+2024-01-08  ATM Withdrawal              $200.00                  $33,730.00
+2024-01-12  Online Purchase             $1,250.00                $32,480.00
+2024-01-15  Check #1023                 $3,400.00                $29,080.00
+2024-01-22  Direct Deposit                           $4,200.00   $33,280.00
+2024-01-28  Monthly Fee                 $25.00                   $33,255.00
+2024-01-31  Closing Balance                                      $33,255.00
+
+Summary:
+Total Deposits: $12,700.00
+Total Withdrawals: $4,875.00
+Net Change: +$7,825.00
+
+This is a financial document showing banking transactions and account balances.
+The document type is clearly a bank statement, not an identity document.
+
+
+

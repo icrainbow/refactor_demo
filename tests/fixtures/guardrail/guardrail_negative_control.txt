@@ -1,0 +1,24 @@
+PASSPORT - IDENTITY DOCUMENT
+
+Passport Number: P12345678
+Surname: SMITH
+Given Names: JOHN MICHAEL
+Nationality: United States of America
+Date of Birth: 15 March 1985
+Place of Birth: New York, USA
+Sex: M
+Date of Issue: 10 January 2020
+Date of Expiry: 09 January 2030
+Issuing Authority: U.S. Department of State
+
+Personal Information:
+Height: 180 cm
+Eye Color: Brown
+Address: 123 Main Street, Apt 4B, New York, NY 10001
+
+This passport document is used for identity verification purposes.
+It contains personal identification information required for KYC compliance.
+This is a valid and appropriate document type for customer identity verification.
+
+
+

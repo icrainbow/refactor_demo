@@ -1,0 +1,108 @@
+# Flow2 Policy Bundle
+# Version: 1.0
+# Owner: Compliance/Risk
+# Approver: Legal + Risk Head
+
+version: "1.0"
+schema: "policy_bundle_v1"
+
+# Section 1: Regulatory Policies
+policies:
+  - policy_id: "POL-001"
+    title: "KYC Customer Due Diligence"
+    description: "Financial institutions must verify customer identity and assess risk"
+    source: "FATF Recommendation 10"
+    effective_date: "2023-01-01"
+
+  - policy_id: "POL-002"
+    title: "Enhanced Due Diligence"
+    description: "Enhanced measures for high-risk customers and jurisdictions"
+    source: "FATF Recommendation 10"
+    effective_date: "2023-01-01"
+
+  - policy_id: "POL-003"
+    title: "Beneficial Ownership Identification"
+    description: "Identify and verify beneficial owners holding 25% or more"
+    source: "FATF Recommendation 24"
+    effective_date: "2023-01-01"
+
+  - policy_id: "POL-004"
+    title: "PEP Screening"
+    description: "Enhanced measures for politically exposed persons"
+    source: "FATF Recommendation 12"
+    effective_date: "2023-01-01"
+
+  - policy_id: "POL-005"
+    title: "Sanctions Screening"
+    description: "Screen against OFAC and UN sanctions lists"
+    source: "OFAC Regulations"
+    effective_date: "2023-01-01"
+
+  - policy_id: "POL-006"
+    title: "Source of Wealth Verification"
+    description: "Verify legitimate source of customer wealth"
+    source: "AML/CTF Act"
+    effective_date: "2023-01-01"
+
+  - policy_id: "POL-007"
+    title: "Ongoing Monitoring"
+    description: "Continuous monitoring of customer transactions and behavior"
+    source: "FATF Recommendation 10"
+    effective_date: "2023-01-01"
+
+  - policy_id: "POL-008"
+    title: "High-Risk Jurisdictions"
+    description: "Enhanced measures for customers from high-risk jurisdictions"
+    source: "FATF Grey/Black Lists"
+    effective_date: "2023-01-01"
+
+  - policy_id: "POL-009"
+    title: "Record Keeping"
+    description: "Maintain KYC records for minimum 5 years"
+    source: "AML/CTF Act"
+    effective_date: "2023-01-01"
+
+  - policy_id: "POL-010"
+    title: "Suspicious Activity Reporting"
+    description: "Report suspicious transactions to authorities"
+    source: "Bank Secrecy Act"
+    effective_date: "2023-01-01"
+
+# Section 2: Risk Triage Rules
+triage:
+  scoring_rules:
+    missing_critical_topic: 15
+    missing_non_critical_topic: 8
+    high_risk_keyword_multiplier: 10
+
+  routing_thresholds:
+    fast: [0, 30]
+    crosscheck: [31, 60]
+    escalate: [61, 80]
+    human_gate: [81, 100]
+
+# Section 3: High-Risk Flags
+high_risk_keywords:
+  - "sanctions"
+  - "pep"
+  - "politically exposed"
+  - "offshore"
+  - "shell company"
+  - "cash intensive"
+  - "cryptocurrency"
+  - "gambling"
+  - "arms"
+  - "tobacco"
+
+# Section 4: Severity Mapping
+severity_mappings:
+  FAIL: "high"
+  WARNING: "medium"
+  INFO: "low"
+  ERROR: "critical"
+
+# Section 5: Fallback Behavior
+fallback:
+  unknown_severity: "medium"
+  missing_topic_coverage: "MISSING"
+  invalid_risk_score: 0

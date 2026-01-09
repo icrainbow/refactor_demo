@@ -1,0 +1,44 @@
+# Golden Test Case: KYC Review
+# Route: kyc_review
+# Description: Adaptive KYC review with risk triage and human gates
+
+test_name: "KYC Review - Standard Case"
+
+input:
+  trigger: "Run Process Review button"
+  context:
+    mode: "langgraph_kyc"
+    documents:
+      - filename: "customer_profile.pdf"
+        type: "kyc_document"
+      - filename: "proof_of_address.pdf"
+        type: "kyc_document"
+
+expected:
+  route_id: "kyc_review"
+  required_skills:
+    - "topic_catalog:topics"
+    - "topic_catalog:critical_flags"
+    - "policy_bundle:triage.scoring_rules"
+    - "policy_bundle:triage.routing_thresholds"
+    - "policy_bundle:high_risk_keywords"
+    - "policy_bundle:severity_mappings"
+    - "prompts_bundle:topic_summaries"
+    - "templates:email_default"
+  topic_ids:
+    - "kyc_customer_id"
+    - "kyc_address_proof"
+    - "kyc_sanctions_screening"
+    - "kyc_beneficial_owner"
+  flags:
+    - "critical_topic_coverage"
+    - "triage_enabled"
+  hitl: true
+  template_id: "email_default"
+
+# Ignored (non-deterministic / LLM-generated):
+# - LLM summary text
+# - Email body content
+# - Explanation fields
+# - run_id, message_id
+# - Timestamps
