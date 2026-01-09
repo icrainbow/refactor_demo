@@ -9,6 +9,7 @@
  * 5. False positive prevention
  */
 
+import { describe, it, expect } from 'vitest';
 import { isRouteEddTrigger } from '../../app/lib/flow2/ambiguousRejectDetector';
 
 describe('isRouteEddTrigger - Enhanced Natural Language Detection', () => {

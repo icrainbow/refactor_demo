@@ -5,9 +5,6 @@ export default defineConfig({
     include: [
       'tests/unit/**/*.test.ts',
     ],
-    exclude: [
-      'tests/unit/ambiguousRejectDetector.test.ts',
-    ],
     globalSetup: [],
     setupFiles: [],
     pool: 'forks',
