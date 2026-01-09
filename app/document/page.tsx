@@ -16,6 +16,7 @@ import Flow2RiskDetailsPanel, { type RiskLevel } from '../components/flow2/Flow2
 import type { GenericTopicSummary } from '@/app/lib/topicSummaries/types';
 import { KYC_FLOW2_CONFIG, IT_BULLETIN_CONFIG, CASE2_CS_INTEGRATION_CONFIG } from '@/app/lib/topicSummaries/configs';
 import { resolveTopicSet } from '@/app/lib/topicSummaries/topicSetResolver';
+import { deriveFlow2RouteId } from '@/app/lib/topicSummaries/deriveFlow2RouteId';
 import { KYC_TOPIC_IDS } from '@/app/lib/flow2/kycTopicsSchema';
 import { mapIssuesToRiskInputs } from '@/app/lib/flow2/issueAdapter';
 import { buildFlow2DemoEvidencePseudoDocs, hasFlow2DemoEvidence } from '@/app/lib/flow2/demoEvidencePseudoDocs';
@@ -2010,8 +2011,15 @@ function DocumentPageContent() {
         // Call topic summaries with (potentially augmented) document set
         // CRITICAL: Await this call - Flow Monitor should not show until this completes
         console.log('[Flow2/HITL] Extracting topics before showing Flow Monitor...');
-        // Phase 3.4: Use TopicSetResolver for route-specific topic list
-        const kycTopicIds = resolveTopicSet('kyc_review').topic_ids;
+        // Phase 3.5: Derive routeId from context (pinned to KYC review)
+        const kycCtx = {
+          isFlow2,
+          case3Active: false,
+          case4Active: false,
+          case2Active: false,
+        };
+        const kycRouteId = deriveFlow2RouteId(kycCtx);
+        const kycTopicIds = resolveTopicSet(kycRouteId).topic_ids;
         const topicSuccess = await callGenericTopicSummariesEndpoint(
           '/api/flow2/topic-summaries',
           runIdForTopics,
@@ -2090,8 +2098,15 @@ function DocumentPageContent() {
       console.log('[Flow2] Orchestration complete, now extracting topics for Document Analysis...');
       const runIdForTopics = data.run_id || data.graphReviewTrace?.summary?.runId || `run-${Date.now()}`;
 
-      // Phase 3.4: Use TopicSetResolver for route-specific topic list
-      const kycTopicIdsForCompletion = resolveTopicSet('kyc_review').topic_ids;
+      // Phase 3.5: Derive routeId from context (pinned to KYC review)
+      const kycCompletionCtx = {
+        isFlow2,
+        case3Active: false,
+        case4Active: false,
+        case2Active: false,
+      };
+      const kycCompletionRouteId = deriveFlow2RouteId(kycCompletionCtx);
+      const kycTopicIdsForCompletion = resolveTopicSet(kycCompletionRouteId).topic_ids;
 
       // AWAIT topic summaries - Document Analysis is not complete without topics!
       await callGenericTopicSummariesEndpoint(
@@ -4544,8 +4559,15 @@ function DocumentPageContent() {
       const itRunId = `it-review-${Date.now()}`;
       setItTopicSummariesRunId(itRunId);
 
-      // Phase 3.4: Use TopicSetResolver for route-specific topic list
-      const itTopicIds = resolveTopicSet('it_review').topic_ids;
+      // Phase 3.5: Derive routeId from context (pinned to IT review)
+      const itCtx = {
+        isFlow2: false,
+        case3Active: false,
+        case4Active: true,
+        case2Active: false,
+      };
+      const itRouteId = deriveFlow2RouteId(itCtx);
+      const itTopicIds = resolveTopicSet(itRouteId).topic_ids;
 
       callGenericTopicSummariesEndpoint(
         '/api/it-bulletin/topic-summaries',
