@@ -18,6 +18,7 @@ import { KYC_FLOW2_CONFIG, IT_BULLETIN_CONFIG, CASE2_CS_INTEGRATION_CONFIG } fro
 import { resolveTopicSet } from '@/app/lib/topicSummaries/topicSetResolver';
 import { deriveFlow2RouteId, type DeriveContext } from '@/app/lib/topicSummaries/deriveFlow2RouteId';
 import { buildDeriveContext } from '@/app/lib/topicSummaries/buildDeriveContext';
+import { resolveAgentByRouteId } from '@/app/agents/registry';
 import { KYC_TOPIC_IDS } from '@/app/lib/flow2/kycTopicsSchema';
 import { mapIssuesToRiskInputs } from '@/app/lib/flow2/issueAdapter';
 import { buildFlow2DemoEvidencePseudoDocs, hasFlow2DemoEvidence } from '@/app/lib/flow2/demoEvidencePseudoDocs';
@@ -89,6 +90,14 @@ function getInputModeLabel(mode: Flow2InputMode): string {
     case 'empty':
       return '';
   }
+}
+
+// Phase 5.1: Helper to resolve routeId → agent → topicIds in one call
+function resolveFlow2Route(ctx: DeriveContext) {
+  const routeId = deriveFlow2RouteId(ctx);
+  const agent = resolveAgentByRouteId(routeId);
+  const topicIds = resolveTopicSet(routeId).topic_ids;
+  return { routeId, agentId: agent.id, topicIds };
 }
 
 type SectionStatus = 'unreviewed' | 'pass' | 'fail' | 'warning';
@@ -2012,15 +2021,14 @@ function DocumentPageContent() {
         // Call topic summaries with (potentially augmented) document set
         // CRITICAL: Await this call - Flow Monitor should not show until this completes
         console.log('[Flow2/HITL] Extracting topics before showing Flow Monitor...');
-        // Phase 3.7: Use buildDeriveContext for single source of truth
+        // Phase 5.1: Use resolveFlow2Route helper for route → agent → topics
         const flow2DeriveCtx = buildDeriveContext({
           isFlow2,
           case3Active,
           case4Active,
           case2Active: isCase2Active,
         });
-        const routeId = deriveFlow2RouteId(flow2DeriveCtx);
-        const topicIds = resolveTopicSet(routeId).topic_ids;
+        const { routeId, agentId, topicIds } = resolveFlow2Route(flow2DeriveCtx);
         const topicSuccess = await callGenericTopicSummariesEndpoint(
           '/api/flow2/topic-summaries',
           runIdForTopics,
@@ -2099,15 +2107,14 @@ function DocumentPageContent() {
       console.log('[Flow2] Orchestration complete, now extracting topics for Document Analysis...');
       const runIdForTopics = data.run_id || data.graphReviewTrace?.summary?.runId || `run-${Date.now()}`;
 
-      // Phase 3.7: Use buildDeriveContext for single source of truth
+      // Phase 5.1: Use resolveFlow2Route helper for route → agent → topics
       const completionDeriveCtx = buildDeriveContext({
         isFlow2,
         case3Active,
         case4Active,
         case2Active: isCase2Active,
       });
-      const completionRouteId = deriveFlow2RouteId(completionDeriveCtx);
-      const completionTopicIds = resolveTopicSet(completionRouteId).topic_ids;
+      const { routeId: completionRouteId, agentId: completionAgentId, topicIds: completionTopicIds } = resolveFlow2Route(completionDeriveCtx);
 
       // AWAIT topic summaries - Document Analysis is not complete without topics!
       await callGenericTopicSummariesEndpoint(
@@ -4560,7 +4567,7 @@ function DocumentPageContent() {
       const itRunId = `it-review-${Date.now()}`;
       setItTopicSummariesRunId(itRunId);
 
-      // Phase 3.7: Use buildDeriveContext for single source of truth
+      // Phase 5.1: Use resolveFlow2Route helper for route → agent → topics
       // NOTE: case4Active may still be false here due to async state update
       const itDeriveCtx = buildDeriveContext({
         isFlow2,
@@ -4568,8 +4575,7 @@ function DocumentPageContent() {
         case4Active,
         case2Active: isCase2Active,
       });
-      const itRouteId = deriveFlow2RouteId(itDeriveCtx);
-      const itTopicIds = resolveTopicSet(itRouteId).topic_ids;
+      const { routeId: itRouteId, agentId: itAgentId, topicIds: itTopicIds } = resolveFlow2Route(itDeriveCtx);
 
       callGenericTopicSummariesEndpoint(
         '/api/it-bulletin/topic-summaries',
