@@ -17,6 +17,7 @@ import type { GenericTopicSummary } from '@/app/lib/topicSummaries/types';
 import { KYC_FLOW2_CONFIG, IT_BULLETIN_CONFIG, CASE2_CS_INTEGRATION_CONFIG } from '@/app/lib/topicSummaries/configs';
 import { resolveTopicSet } from '@/app/lib/topicSummaries/topicSetResolver';
 import { deriveFlow2RouteId, type DeriveContext } from '@/app/lib/topicSummaries/deriveFlow2RouteId';
+import { buildDeriveContext } from '@/app/lib/topicSummaries/buildDeriveContext';
 import { KYC_TOPIC_IDS } from '@/app/lib/flow2/kycTopicsSchema';
 import { mapIssuesToRiskInputs } from '@/app/lib/flow2/issueAdapter';
 import { buildFlow2DemoEvidencePseudoDocs, hasFlow2DemoEvidence } from '@/app/lib/flow2/demoEvidencePseudoDocs';
@@ -2011,13 +2012,13 @@ function DocumentPageContent() {
         // Call topic summaries with (potentially augmented) document set
         // CRITICAL: Await this call - Flow Monitor should not show until this completes
         console.log('[Flow2/HITL] Extracting topics before showing Flow Monitor...');
-        // Phase 3.6: Derive routeId from live context
-        const flow2DeriveCtx: DeriveContext = {
+        // Phase 3.7: Use buildDeriveContext for single source of truth
+        const flow2DeriveCtx = buildDeriveContext({
           isFlow2,
           case3Active,
           case4Active,
           case2Active: isCase2Active,
-        };
+        });
         const routeId = deriveFlow2RouteId(flow2DeriveCtx);
         const topicIds = resolveTopicSet(routeId).topic_ids;
         const topicSuccess = await callGenericTopicSummariesEndpoint(
@@ -2098,13 +2099,13 @@ function DocumentPageContent() {
       console.log('[Flow2] Orchestration complete, now extracting topics for Document Analysis...');
       const runIdForTopics = data.run_id || data.graphReviewTrace?.summary?.runId || `run-${Date.now()}`;
 
-      // Phase 3.6: Derive routeId from live context (completion path)
-      const completionDeriveCtx: DeriveContext = {
+      // Phase 3.7: Use buildDeriveContext for single source of truth
+      const completionDeriveCtx = buildDeriveContext({
         isFlow2,
         case3Active,
         case4Active,
         case2Active: isCase2Active,
-      };
+      });
       const completionRouteId = deriveFlow2RouteId(completionDeriveCtx);
       const completionTopicIds = resolveTopicSet(completionRouteId).topic_ids;
 
@@ -4559,14 +4560,14 @@ function DocumentPageContent() {
       const itRunId = `it-review-${Date.now()}`;
       setItTopicSummariesRunId(itRunId);
 
-      // Phase 3.6: Derive routeId from live context
+      // Phase 3.7: Use buildDeriveContext for single source of truth
       // NOTE: case4Active may still be false here due to async state update
-      const itDeriveCtx: DeriveContext = {
+      const itDeriveCtx = buildDeriveContext({
         isFlow2,
         case3Active,
         case4Active,
         case2Active: isCase2Active,
-      };
+      });
       const itRouteId = deriveFlow2RouteId(itDeriveCtx);
       const itTopicIds = resolveTopicSet(itRouteId).topic_ids;
 
