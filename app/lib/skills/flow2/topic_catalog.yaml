@@ -122,8 +122,6 @@ critical_flags:
     - ownership_ubo_control
     - sanctions_pep_adverse_media
 
-# Phase 3.4: Route-specific topic sets
-# Maps route_id to ordered list of topic_ids to display
 topic_sets:
   kyc_review:
     - customer_identity_profile
@@ -149,3 +147,10 @@ topic_sets:
     - change_details_what_changed
     - timeline_execution_windows
     - actions_required_followups
+
+  guardrail_check:
+    - system_alert
+    - risk_flag
+
+  chat_general:
+    - general_inquiry

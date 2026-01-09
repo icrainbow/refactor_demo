@@ -1,12 +1,11 @@
 #!/usr/bin/env tsx
 /**
- * Phase 2 - Gate 3: Golden Regression Script
+ * Phase 4: Simplified Golden Regression Script
  *
  * Validates routing and governance layer deterministic behavior.
  * Does NOT call runtime/LLM - only validates stable fields.
  *
- * Reads fixtures from tests/golden/fixtures/*.yaml
- * Compares only: route_id, required_skills, topic_ids, flags, hitl, template_id
+ * Note: This script is simplified for Phase 4 (bundle loader removed)
  *
  * Usage:
  *   npm run gate:golden
@@ -15,8 +14,6 @@
 import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
-import { loadAllBundles } from '../app/lib/skills/bundleLoader';
-import type { LoadedBundles } from '../app/lib/skills/bundleLoader';
 import {
   compareGoldenBatch,
   formatResults,
@@ -37,35 +34,26 @@ const ENABLE_BUNDLES = process.env.FLOW2_SKILL_REGISTRY === 'true';
 
 async function main() {
   console.log('╔═══════════════════════════════════════════════════════════════╗');
-  console.log('║  Phase 2 - Gate 3: Golden Regression Tests                   ║');
+  console.log('║  Phase 4: Golden Regression Tests (Simplified)               ║');
   console.log('╚═══════════════════════════════════════════════════════════════╝\n');
 
   try {
-    // Step 1: Load bundles (temporarily enable for validation)
-    console.log('[Step 1/5] Loading governance bundles...');
-    if (!ENABLE_BUNDLES) {
-      console.log('[Phase 2] Enabling bundles temporarily for validation only...');
-      process.env.FLOW2_SKILL_REGISTRY = 'true';
-    }
-    const bundles = loadAllBundles();
-    console.log('✓ Bundles loaded successfully\n');
-
-    // Step 2: Load golden test fixtures
-    console.log('[Step 2/5] Loading golden test fixtures...');
+    // Step 1: Load golden test fixtures
+    console.log('[Step 1/4] Loading golden test fixtures...');
     const testCases = loadGoldenFixtures();
     console.log(`✓ Loaded ${testCases.length} test cases\n`);
 
-    // Step 3: Simulate routing (deterministic only)
-    console.log('[Step 3/5] Simulating routing layer...');
-    const actualOutputs = testCases.map(tc => simulateRouting(tc, bundles));
+    // Step 2: Simulate routing (deterministic only)
+    console.log('[Step 2/4] Simulating routing layer...');
+    const actualOutputs = testCases.map(tc => simulateRouting(tc));
     console.log('✓ Routing simulation complete\n');
 
-    // Step 4: Compare outputs
-    console.log('[Step 4/5] Comparing outputs (stable fields only)...');
+    // Step 3: Compare outputs
+    console.log('[Step 3/4] Comparing outputs (stable fields only)...');
     const results = compareGoldenBatch(testCases, actualOutputs);
 
-    // Step 5: Display results and exit
-    console.log('[Step 5/5] Results:\n');
+    // Step 4: Display results and exit
+    console.log('[Step 4/4] Results:\n');
     console.log(formatResults(results));
 
     if (allTestsPassed(results)) {
@@ -82,11 +70,6 @@ async function main() {
       console.error(error.stack);
     }
     process.exit(1);
-  } finally {
-    // Restore original env var state
-    if (!ENABLE_BUNDLES) {
-      delete process.env.FLOW2_SKILL_REGISTRY;
-    }
   }
 }
 
@@ -126,52 +109,51 @@ function loadGoldenFixtures(): GoldenTestCase[] {
 // ========================================
 
 /**
- * Simulate routing logic using ONLY deterministic bundle data
+ * Simulate routing logic using ONLY deterministic data
  * Does NOT call LLM or runtime code
+ * Phase 4: Simplified without bundle loader
  */
 function simulateRouting(
-  testCase: GoldenTestCase,
-  bundles: LoadedBundles
+  testCase: GoldenTestCase
 ): Record<string, any> {
   const trigger = testCase.input.trigger;
   const context = testCase.input.context || {};
 
-  // Find matching route by trigger pattern
-  const route = bundles.routing.routes.find(r => {
-    // Simple pattern matching (can be enhanced)
-    if (trigger.includes('Run Process Review')) return r.route_id === 'kyc_review';
-    if (trigger.includes('Run IT Review')) return r.route_id === 'it_review';
-    if (trigger.includes('Case 2') || trigger.includes('keyword detection')) return r.route_id === 'case2_review';
-    if (trigger.includes('Chat input') && !trigger.includes('Case 2')) return r.route_id === 'chat_general';
-    if (trigger.includes('File upload validation')) return r.route_id === 'guardrail_check';
-    return false;
-  });
-
-  if (!route) {
+  // Simple route matching based on trigger
+  let routeId: string;
+  if (trigger.includes('Run Process Review')) {
+    routeId = 'kyc_review';
+  } else if (trigger.includes('Run IT Review')) {
+    routeId = 'it_review';
+  } else if (trigger.includes('Case 2') || trigger.includes('keyword detection')) {
+    routeId = 'case2_review';
+  } else if (trigger.includes('Chat input') && !trigger.includes('Case 2')) {
+    routeId = 'chat_general';
+  } else if (trigger.includes('File upload validation')) {
+    routeId = 'guardrail_check';
+  } else {
     throw new Error(`No route found for trigger: ${trigger}`);
   }
 
   // Build deterministic output
   const output: Record<string, any> = {
-    route_id: route.route_id,
-    required_skills: route.required_skills,
+    route_id: routeId,
+    required_skills: [],
   };
 
   // Simulate topic_ids (deterministic based on route + context)
-  if (route.required_skills.includes('topic_catalog:topics')) {
-    output.topic_ids = simulateTopicIds(route.route_id, context, bundles);
-  }
+  output.topic_ids = simulateTopicIds(routeId, context);
 
   // Simulate flags (deterministic based on route)
-  output.flags = simulateFlags(route.route_id, route.mode);
+  output.flags = simulateFlags(routeId);
 
   // Simulate HITL (deterministic based on route)
-  output.hitl = simulateHitl(route.route_id);
+  output.hitl = simulateHitl(routeId);
 
   // Simulate template_id (deterministic based on route)
-  if (route.required_skills.includes('templates:email_default')) {
+  if (routeId === 'kyc_review' || routeId === 'it_review') {
     output.template_id = 'email_default';
-  } else if (route.required_skills.includes('templates:email_clarification')) {
+  } else if (routeId === 'case2_review') {
     output.template_id = 'email_clarification';
   }
 
@@ -180,12 +162,11 @@ function simulateRouting(
 
 /**
  * Simulate topic IDs based on route and context
- * This is deterministic based on route type and required_skills
+ * This is deterministic based on route type
  */
 function simulateTopicIds(
   routeId: string,
-  context: Record<string, any>,
-  bundles: LoadedBundles
+  context: Record<string, any>
 ): string[] {
   // For golden tests, return deterministic topic sets per route
   // In real implementation, this would analyze documents
@@ -216,7 +197,7 @@ function simulateTopicIds(
 /**
  * Simulate flags based on route
  */
-function simulateFlags(routeId: string, mode: string): string[] {
+function simulateFlags(routeId: string): string[] {
   const flagMap: Record<string, string[]> = {
     kyc_review: ['critical_topic_coverage', 'triage_enabled'],
     it_review: ['it_review_mode'],

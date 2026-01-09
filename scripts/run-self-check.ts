@@ -1,16 +1,14 @@
 #!/usr/bin/env tsx
 /**
- * Phase 2 - Gate 2: Self-Check Script
+ * Phase 4: Simplified Self-Check Script
  *
- * Validates bundle integrity without loading into runtime.
- * Reads bundles from filesystem and runs all 5 validation functions.
+ * Validates essential files exist.
  *
  * Usage:
  *   FLOW2_SELF_CHECK_MODE=fail npm run gate:selfcheck   # Dev mode (fail-fast)
  *   FLOW2_SELF_CHECK_MODE=warn npm run gate:selfcheck   # Prod mode (warn-only)
  */
 
-import { loadAllBundles } from '../app/lib/skills/bundleLoader';
 import { runStartupSelfCheck, type SelfCheckResult } from '../app/lib/skills/startupSelfCheck';
 
 // ========================================
@@ -18,7 +16,6 @@ import { runStartupSelfCheck, type SelfCheckResult } from '../app/lib/skills/sta
 // ========================================
 
 const SELF_CHECK_MODE = (process.env.FLOW2_SELF_CHECK_MODE === 'warn' ? 'prod' : 'dev') as 'dev' | 'prod';
-const ENABLE_BUNDLES = process.env.FLOW2_SKILL_REGISTRY === 'true';
 
 // ========================================
 // MAIN EXECUTION
@@ -26,43 +23,24 @@ const ENABLE_BUNDLES = process.env.FLOW2_SKILL_REGISTRY === 'true';
 
 async function main() {
   console.log('╔═══════════════════════════════════════════════════════════════╗');
-  console.log('║  Phase 2 - Gate 2: Skill Bundle Self-Check                   ║');
+  console.log('║  Phase 4: Self-Check (Simplified)                            ║');
   console.log('╚═══════════════════════════════════════════════════════════════╝\n');
 
-  console.log(`[Config] FLOW2_SKILL_REGISTRY: ${ENABLE_BUNDLES ? 'TRUE' : 'FALSE'}`);
   console.log(`[Config] FLOW2_SELF_CHECK_MODE: ${SELF_CHECK_MODE}\n`);
 
-  // Phase 2: Bundles NOT enabled in runtime, but we enable temporarily for validation
-  if (!ENABLE_BUNDLES) {
-    console.log('[Phase 2] Enabling bundles temporarily for validation only...');
-    process.env.FLOW2_SKILL_REGISTRY = 'true';
-  }
-
   try {
-    // Step 1: Load bundles
-    console.log('[Step 1/5] Loading governance bundles...');
-    const bundles = loadAllBundles();
-    console.log('✓ Bundles loaded successfully\n');
+    // Step 1: Run validation functions
+    console.log('[Step 1/3] Running self-check validations...');
+    const result = runStartupSelfCheck(SELF_CHECK_MODE);
 
-    // Step 2: Run all 5 validation functions
-    console.log('[Step 2/5] Running self-check validations...');
-    const result = runStartupSelfCheck(SELF_CHECK_MODE, bundles);
-
-    // Step 3: Display results
-    console.log('\n[Step 3/5] Validation Results:');
+    // Step 2: Display results
+    console.log('\n[Step 2/3] Validation Results:');
     displayResults(result);
 
-    // Step 4: Summary
-    console.log('\n[Step 4/5] Summary:');
-    console.log(`  Routes validated: ${bundles.routing.routes.length}`);
-    console.log(`  Topics validated: ${bundles.topicCatalog.topics.length}`);
-    console.log(`  Policies validated: ${bundles.policyBundle.policies.length}`);
-    console.log(`  Templates validated: ${Object.keys(bundles.templates).filter(k => bundles.templates[k as keyof typeof bundles.templates]).length}`);
-
-    // Step 5: Exit with appropriate code
-    console.log('\n[Step 5/5] Final Status:');
+    // Step 3: Exit with appropriate code
+    console.log('\n[Step 3/3] Final Status:');
     if (result.ok) {
-      console.log('✅ SELF-CHECK PASSED - All bundles valid\n');
+      console.log('✅ SELF-CHECK PASSED - All essential files exist\n');
       process.exit(0);
     } else {
       if (SELF_CHECK_MODE === 'dev') {
@@ -82,11 +60,6 @@ async function main() {
     } else {
       console.warn('⚠️  Continuing with legacy fallback (prod mode)\n');
       process.exit(0);
-    }
-  } finally {
-    // Restore original env var state
-    if (!ENABLE_BUNDLES) {
-      delete process.env.FLOW2_SKILL_REGISTRY;
     }
   }
 }
